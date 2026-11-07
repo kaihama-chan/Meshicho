@@ -600,20 +600,19 @@ function fbInit(){
 function authError(e){
   if(!e || e.code==='auth/popup-closed-by-user' || e.code==='auth/cancelled-popup-request') return;
   console.error(e);
-  const hint = e.code==='auth/unauthorized-domain'
-    ? 'Firebase の Authentication 設定で、承認済みドメインに kaihama-chan.github.io を追加してください。'
-    : (e.message||e.code||'');
+  const hint =
+    e.code==='auth/popup-blocked' ? 'ログイン用の小窓がブロックされました。アドレスバー右端のアイコンから、このサイトのポップアップを許可してもう一度押してください。' :
+    e.code==='auth/operation-not-supported-in-this-environment' ? 'このブラウザではログイン用の小窓を開けません。Chrome や Safari で開いてください。' :
+    e.code==='auth/unauthorized-domain' ? 'Firebase の Authentication 設定で、承認済みドメインに kaihama-chan.github.io を追加してください。' :
+    `${e.code||''} ${e.message||''}`;
   status(`<b>ログインできませんでした。</b> ${esc(hint)}`);
 }
 async function login(){
   const prov=new firebase.auth.GoogleAuthProvider();
   prov.setCustomParameters({prompt:'select_account'});
+  /* ページ移動型のログインは GitHub Pages では戻ってこられないことがあるので、ポップアップだけを使う */
   try{ await firebase.auth().signInWithPopup(prov); }
-  catch(e){
-    if(e.code==='auth/popup-blocked' || e.code==='auth/operation-not-supported-in-this-environment')
-      return firebase.auth().signInWithRedirect(prov).catch(authError);
-    authError(e);
-  }
+  catch(e){ authError(e); }
 }
 function renderAuth(){
   const box=$('#authBox'); if(!box) return;
