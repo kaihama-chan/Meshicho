@@ -146,6 +146,9 @@ button{cursor:pointer}
 .rev header{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);margin-bottom:4px;flex-wrap:wrap}
 .rev p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .closeX{justify-self:end}
+.nav{display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;padding:11px 16px;font-size:15px}
+.nav svg{width:16px;height:16px}
+.nav .num{font-weight:600;opacity:.85;font-size:13px}
 a{color:var(--accent)}
 
 .record{display:grid;gap:14px;background:var(--card);border-radius:20px;padding:16px;box-shadow:var(--shadow)}
@@ -479,6 +482,7 @@ function savePay(p, po){
   if(FB.user) recRef(p.id).set({name:p.name, pay},{merge:true}).catch(e=>console.error(e));
   render();
 }
+const NAV_ICON = '<svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M14.4 1.6 1.8 6.9l5.1 1.9 1.9 5.1z"/></svg>';
 const ICON = {
   card:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="9" rx="1.6"/><path d="M1.5 6.6h13" stroke-width="1.8"/></svg>',
   nfc:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 5.5a3.5 3.5 0 0 1 0 5"/><path d="M7 3.5a6.5 6.5 0 0 1 0 9"/><path d="M10 1.8a9 9 0 0 1 0 12.4"/></svg>',
@@ -517,10 +521,9 @@ function loadMaps(key){
     document.head.appendChild(s);
   });
 }
-/* 公園・お店・駅などのアイコンを消した地図。スタイル指定を効かせるため Map ID は使わず、ピンは自前の重ね表示で描く */
+/* 公園・お店などのアイコンを消した地図（電車とバスの駅は残す）。スタイル指定を効かせるため Map ID は使わず、ピンは自前の重ね表示で描く */
 const MAP_STYLE = [
   {featureType:'poi', stylers:[{visibility:'off'}]},
-  {featureType:'transit', elementType:'labels.icon', stylers:[{visibility:'off'}]},
   {featureType:'road', elementType:'labels.icon', stylers:[{visibility:'off'}]},
   {stylers:[{saturation:-35}]}
 ];
@@ -620,6 +623,14 @@ async function searchAround(origin,label){
   }
 }
 
+/* Google マップで現在地からの徒歩ナビを開くリンク（スマホではアプリが開いてナビが始まる） */
+function navUrl(p){
+  const q = new URLSearchParams({api:'1', travelmode:'walking', dir_action:'navigate'});
+  if(p.sample){ q.set('destination', `${p.lat},${p.lng}`); }
+  else { q.set('destination', p.name); q.set('destination_place_id', p.id); }
+  return 'https://www.google.com/maps/dir/?' + q.toString();
+}
+
 /* ---------- detail sheet with reviews ---------- */
 async function openDetail(id){
   const p = S.places.find(x=>x.id===id); if(!p) return;
@@ -633,7 +644,8 @@ async function openDetail(id){
     <h2 id="dTitle">${esc(p.name)}</h2>
     <div class="score"><span class="r">${p.rating?p.rating.toFixed(1):'–'}</span>
       <span class="stars" style="--p:${(p.rating||0)/5*100}%"></span>
-      <span class="cnt num">口コミ ${(p.count||0).toLocaleString()}件</span></div>`;
+      <span class="cnt num">口コミ ${(p.count||0).toLocaleString()}件</span></div>
+    <a class="btn primary nav" href="${esc(navUrl(p))}" target="_blank" rel="noopener">${NAV_ICON}徒歩で経路案内<span class="num">${walk(d)}</span></a>`;
   const facts = (extra={}) => `
     <dl class="facts">
       <dt>ジャンル</dt><dd>${esc(p.genre||'飲食店')}</dd>
