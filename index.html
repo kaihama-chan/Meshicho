@@ -157,6 +157,7 @@ button{cursor:pointer}
 .rev header{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);margin-bottom:4px;flex-wrap:wrap}
 .rev p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .closeX{justify-self:end}
+.hideBtn{justify-self:start;font-size:12px;text-decoration:underline;text-underline-offset:3px}
 .nav{display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;padding:11px 16px;font-size:15px}
 .nav svg{width:16px;height:16px}
 .nav .num{font-weight:600;opacity:.85;font-size:13px}
@@ -255,6 +256,7 @@ a{color:var(--accent)}
         <button type="button" data-v="all" aria-pressed="true">すべて</button>
         <button type="button" data-v="went" aria-pressed="false">行った</button>
         <button type="button" data-v="not" aria-pressed="false">まだ</button>
+        <button type="button" data-v="hidden" aria-pressed="false">外したお店</button>
       </div></div></div>
     <div class="frow"><span class="lbl">ジャンル</span><div class="chips" id="chips"></div></div>
   </div>
@@ -431,6 +433,7 @@ function visible(){
   if(S.minRating) L = L.filter(p=>(p.rating||0)>=S.minRating);
   if(S.openOnly) L = L.filter(p=>p.openNow===true);
   if(S.genre) L = L.filter(p=>p.genre===S.genre);
+  L = S.went==='hidden' ? L.filter(p=>isHidden(p.id)) : L.filter(p=>!isHidden(p.id));
   S.base = L;   // 「行った割合」はこの段階（記録の絞り込み前）のお店で数える
   if(S.went==='went') L = L.filter(p=>rec(p.id)?.went);
   if(S.went==='not') L = L.filter(p=>!rec(p.id)?.went);
@@ -510,6 +513,18 @@ function progressHtml(){
 /* ---------- 支払い方法（お店を開いたときに取得し、2人の共有データにも保存） ---------- */
 let PAY = (()=>{ try{ return JSON.parse(ls.get('meshi.pay'))||{} }catch(e){ return {} } })();
 const getPay = id => rec(id)?.pay || PAY[id] || null;
+
+/* 手で「一覧から外す」：ログイン中は2人で共有、ログイン前はこのブラウザだけに保存 */
+let HID = (()=>{ try{ return JSON.parse(ls.get('meshi.hidden'))||{} }catch(e){ return {} } })();
+const isHidden = id => rec(id)?.hidden ?? !!HID[id];
+function setHidden(p, on){
+  if(on) HID[p.id]=1; else delete HID[p.id];
+  ls.set('meshi.hidden', JSON.stringify(HID));
+  if(FB.user && !p.sample) recRef(p.id).set({name:p.name, hidden:on},{merge:true}).catch(e=>console.error(e));
+  else render();
+  const b=$('#panel [data-act="hide"]'); if(b) b.textContent = on ? '一覧に戻す' : 'このお店を一覧から外す';
+  status(on ? `「${esc(p.name)}」を一覧から外しました。　「並び替え・絞り込み」の記録で「外したお店」を選ぶと戻せます。` : `「${esc(p.name)}」を一覧に戻しました。`);
+}
 function savePay(p, po){
   const pay = po ? {cc:!!po.acceptsCreditCards, dc:!!po.acceptsDebitCards, cash:!!po.acceptsCashOnly, nfc:!!po.acceptsNFC} : {none:true};
   const old = getPay(p.id);
@@ -540,7 +555,7 @@ function updateSummary(){
   const parts=[SORT_L[S.sort], S.radius>=1000?'1km以内':S.radius+'m以内'];
   if(S.minRating) parts.push(`★${S.minRating}以上`);
   if(S.openOnly) parts.push('営業中');
-  if(S.went==='went') parts.push('行った店'); if(S.went==='not') parts.push('まだの店');
+  if(S.went==='went') parts.push('行った店'); if(S.went==='not') parts.push('まだの店'); if(S.went==='hidden') parts.push('外したお店');
   if(S.genre) parts.push(S.genre);
   if(S.q) parts.unshift(`店名「${S.q}」`);
   const el=$('#fsum'); if(el) el.textContent=parts.join('・');
@@ -611,12 +626,24 @@ const SETS = [
   {types:['bar','pub'], rank:'POPULARITY'},
 ];
 const FIELDS = ['id','displayName','location','rating','userRatingCount','priceLevel','primaryTypeDisplayName',
-  'formattedAddress','regularOpeningHours','utcOffsetMinutes','businessStatus','googleMapsURI','photos'];
+  'formattedAddress','regularOpeningHours','utcOffsetMinutes','businessStatus','googleMapsURI','photos','primaryType','types'];
+
+/* 食事のお店ではないもの（食材店・食料品店、大学や学校の中の食堂）を一覧から外す */
+const FOOD_STORE = ['grocery_store','supermarket','convenience_store','food_store','butcher_shop','market','liquor_store',
+  'asian_grocery_store','health_food_store','wholesaler','department_store','discount_store','confectionery','farmers_market'];
+const SCHOOL_TYPES = ['university','school','primary_school','secondary_school'];
+const CAMPUS_RE = /大学|キャンパス|学食|学生食堂|生協|学生会館/;
+function notEatery(p){
+  if(FOOD_STORE.includes(p.primaryType||'')) return true;
+  if((p.types||[]).some(t=>SCHOOL_TYPES.includes(t))) return true;
+  return CAMPUS_RE.test(p.displayName||'');
+}
 const objs = new Map(); // id -> google Place object (for reviews later)
 
 /* Google の Place をめし帖の一覧用データに変換（閉業店は除く） */
-function toItem(p){
+function toItem(p, keepAll){
   if(p.businessStatus && p.businessStatus!=='OPERATIONAL') return null;
+  if(!keepAll && notEatery(p)) return null;   // 店名で探したときは外さない
   objs.set(p.id,p);
   let pp=null; try{ pp = toPeriods(p.regularOpeningHours); }catch(e){}
   const off = p.utcOffsetMinutes ?? 540;
@@ -646,7 +673,7 @@ async function searchByName(){
     const {Place}=await google.maps.importLibrary('places');
     const {places}=await Place.searchByText({textQuery:q, fields:FIELDS,
       locationBias:{center:S.origin, radius:1500}, maxResultCount:10, language:'ja', region:'jp'});
-    const items=places.map(toItem).filter(Boolean);
+    const items=places.map(p=>toItem(p,true)).filter(Boolean);
     for(const it of items){
       const i=S.places.findIndex(x=>x.id===it.id);
       if(i>=0) S.places[i]={...S.places[i], ...it}; else S.places.push(it);
@@ -685,7 +712,7 @@ async function searchAround(origin,label){
   if(!S.key){ $('#keyBox').hidden=false; status('<b>先にAPIキーを設定してください。</b>'); return; }
   S.origin=origin; S.originLabel=label; $('#where').textContent='検索の中心：'+label;
   ls.set('meshi.origin', JSON.stringify({origin,label}));
-  const ck='meshi.cache4.'+origin.lat.toFixed(3)+','+origin.lng.toFixed(3);
+  const ck='meshi.cache5.'+origin.lat.toFixed(3)+','+origin.lng.toFixed(3);
   try{
     await loadMaps(S.key); await ensureMap();
     S.map.setCenter(origin); S.map.setZoom(15);
@@ -755,7 +782,8 @@ async function openDetail(id){
       ${extra.web?`<dt>Web</dt><dd><a href="${esc(extra.web)}" target="_blank" rel="noopener">公式サイト</a></dd>`:''}
       ${p.url?`<dt>地図</dt><dd><a href="${esc(p.url)}" target="_blank" rel="noopener">Googleマップで開く</a></dd>`:''}
     </dl>
-    ${p.hours?.length?`<ul class="hours">${p.hours.map(h=>`<li>${esc(h)}</li>`).join('')}</ul>`:''}`;
+    ${p.hours?.length?`<ul class="hours">${p.hours.map(h=>`<li>${esc(h)}</li>`).join('')}</ul>`:''}
+    <button class="btn ghost hideBtn" type="button" data-act="hide">${isHidden(p.id)?'一覧に戻す':'このお店を一覧から外す'}</button>`;
   const revHtml = rs => rs.length ? rs.map(r=>`
     <article class="rev"><header><span class="stars" style="--p:${(r.rating||0)/5*100}%"></span>
       <b>${esc(r.author)}</b><span>${esc(r.when)}</span></header><p>${esc(r.text)}</p></article>`).join('')
@@ -1036,6 +1064,9 @@ $('#panel').addEventListener('click',async e=>{
     return;
   }
   if(e.target.closest('[data-act="login"]')){ login(); return; }
+  if(e.target.closest('[data-act="hide"]')){
+    const p=S.places.find(x=>x.id===S.selected); if(p) setHidden(p, !isHidden(p.id)); return;
+  }
   const img=e.target.closest('.photo img');
   if(img){ $('#lightImg').src=img.src; $('#lightbox').hidden=false; }
 });
