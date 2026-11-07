@@ -179,6 +179,9 @@ a{color:var(--accent)}
 .lightbox{position:fixed;inset:0;z-index:60;background:rgb(20 16 12 / .88);display:grid;place-items:center;padding:16px}
 .lightbox img{max-width:100%;max-height:100%;border-radius:12px}
 
+.pinWrap{position:absolute;transform:translate(-50%,-115%);cursor:pointer}
+.pinWrap:hover .pin{transform:rotate(-45deg) scale(1.12)}
+.meWrap{position:absolute;transform:translate(-50%,-50%);pointer-events:none}
 .pin{width:28px;height:28px;border-radius:50% 50% 50% 0;transform:rotate(-45deg);background:var(--accent);border:2px solid #fff;display:grid;place-items:center;box-shadow:0 2px 6px rgb(0 0 0 / .3)}
 .pin span{transform:rotate(45deg);color:#fff;font:800 11px var(--f-num)}
 .pin.on{background:var(--star)}
@@ -514,29 +517,45 @@ function loadMaps(key){
     document.head.appendChild(s);
   });
 }
+/* 公園・お店・駅などのアイコンを消した地図。スタイル指定を効かせるため Map ID は使わず、ピンは自前の重ね表示で描く */
+const MAP_STYLE = [
+  {featureType:'poi', stylers:[{visibility:'off'}]},
+  {featureType:'transit', elementType:'labels.icon', stylers:[{visibility:'off'}]},
+  {featureType:'road', elementType:'labels.icon', stylers:[{visibility:'off'}]},
+  {stylers:[{saturation:-35}]}
+];
+let PinOverlay = null;
 async function ensureMap(){
   if(S.map) return;
-  const {Map} = await google.maps.importLibrary('maps');
-  await google.maps.importLibrary('marker');
+  const {Map, OverlayView} = await google.maps.importLibrary('maps');
+  PinOverlay = class extends OverlayView{
+    constructor(pos, el){ super(); this.pos=pos; this.el=el; }
+    onAdd(){ this.getPanes().overlayMouseTarget.appendChild(this.el); }
+    draw(){
+      const pt=this.getProjection()?.fromLatLngToDivPixel(new google.maps.LatLng(this.pos));
+      if(pt){ this.el.style.left=pt.x+'px'; this.el.style.top=pt.y+'px'; }
+    }
+    onRemove(){ this.el.remove(); }
+  };
   const el=$('#map'); el.textContent='';
-  S.map = new Map(el,{center:S.origin||SAMPLE_ORIGIN,zoom:15,mapId:'DEMO_MAP_ID',
-    clickableIcons:false,streetViewControl:false,mapTypeControl:false,fullscreenControl:false});
+  S.map = new Map(el,{center:S.origin||SAMPLE_ORIGIN, zoom:15, styles:MAP_STYLE,
+    clickableIcons:false, streetViewControl:false, mapTypeControl:false, fullscreenControl:false});
 }
 function renderMarkers(L){
-  if(!S.map || !google.maps.marker) return;
-  const {AdvancedMarkerElement} = google.maps.marker;
-  S.markers.forEach(m=>m.map=null); S.markers.clear();
+  if(!S.map || !PinOverlay) return;
+  S.markers.forEach(m=>m.setMap(null)); S.markers.clear();
   L.slice(0,60).forEach((p,i)=>{
-    const d=document.createElement('div'); d.className='pin'+(S.selected===p.id?' on':'');
-    d.innerHTML=`<span>${i+1}</span>`;
-    const m=new AdvancedMarkerElement({map:S.map,position:{lat:p.lat,lng:p.lng},content:d,title:p.name});
-    m.addListener('click',()=>openDetail(p.id));
-    S.markers.set(p.id,m);
+    const w=document.createElement('div'); w.className='pinWrap'; w.title=p.name;
+    w.innerHTML=`<div class="pin${S.selected===p.id?' on':''}"><span>${i+1}</span></div>`;
+    google.maps.OverlayView.preventMapHitsAndGesturesFrom(w);
+    w.addEventListener('click',()=>openDetail(p.id));
+    const o=new PinOverlay({lat:p.lat,lng:p.lng}, w); o.setMap(S.map);
+    S.markers.set(p.id,o);
   });
+  if(S.meMarker){ S.meMarker.setMap(null); S.meMarker=null; }
   if(S.origin){
-    if(!S.meMarker){ const me=document.createElement('div'); me.className='me';
-      S.meMarker=new AdvancedMarkerElement({map:S.map,position:S.origin,content:me,title:'検索の中心'}); }
-    else S.meMarker.position=S.origin;
+    const w=document.createElement('div'); w.className='meWrap'; w.title='検索の中心'; w.innerHTML='<div class="me"></div>';
+    S.meMarker=new PinOverlay(S.origin, w); S.meMarker.setMap(S.map);
   }
 }
 
