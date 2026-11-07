@@ -599,13 +599,16 @@ function renderMarkers(L){
   }
 }
 
+/* 1回の検索で投げる6つの問い合わせ（Google は1回につき最大20件）。
+   「メインの業種」ではなく「飲食店に該当するお店すべて」で探すので、インド料理・ドイツ料理・焼肉・居酒屋なども対象になる */
+const EX_JP = ['japanese_restaurant','ramen_restaurant','sushi_restaurant','chinese_restaurant','fast_food_restaurant'];
 const SETS = [
-  {types:['restaurant'],rank:'POPULARITY'},
-  {types:['restaurant'],rank:'DISTANCE'},
-  {types:['cafe','coffee_shop','bakery'],rank:'POPULARITY'},
-  {types:['ramen_restaurant','japanese_restaurant','sushi_restaurant'],rank:'POPULARITY'},
-  {types:['bar','pub'],rank:'POPULARITY'},
-  {types:['chinese_restaurant','korean_restaurant','italian_restaurant','fast_food_restaurant'],rank:'POPULARITY'},
+  {types:['restaurant'], rank:'POPULARITY'},
+  {types:['restaurant'], rank:'DISTANCE'},
+  {types:['restaurant'], rank:'POPULARITY', exclude:EX_JP, radius:600},  // 和食・ラーメン・寿司・中華・ファストフード以外の、近場の人気店
+  {types:['restaurant'], rank:'POPULARITY', exclude:EX_JP},              // 同じく1km以内
+  {types:['cafe','coffee_shop','bakery'], rank:'POPULARITY'},
+  {types:['bar','pub'], rank:'POPULARITY'},
 ];
 const FIELDS = ['id','displayName','location','rating','userRatingCount','priceLevel','primaryTypeDisplayName',
   'formattedAddress','regularOpeningHours','utcOffsetMinutes','businessStatus','googleMapsURI','photos'];
@@ -659,7 +662,7 @@ async function searchAround(origin,label){
   if(!S.key){ $('#keyBox').hidden=false; status('<b>先にAPIキーを設定してください。</b>'); return; }
   S.origin=origin; S.originLabel=label; $('#where').textContent='検索の中心：'+label;
   ls.set('meshi.origin', JSON.stringify({origin,label}));
-  const ck='meshi.cache2.'+origin.lat.toFixed(3)+','+origin.lng.toFixed(3);
+  const ck='meshi.cache3.'+origin.lat.toFixed(3)+','+origin.lng.toFixed(3);
   try{
     await loadMaps(S.key); await ensureMap();
     S.map.setCenter(origin); S.map.setZoom(15);
@@ -670,8 +673,8 @@ async function searchAround(origin,label){
     if(cached){ list=cached; }
     else{
       const results = await Promise.allSettled(SETS.map(s=>Place.searchNearby({
-        fields:FIELDS, locationRestriction:{center:origin,radius:1000},
-        includedPrimaryTypes:s.types, maxResultCount:20,
+        fields:FIELDS, locationRestriction:{center:origin, radius:s.radius||1000},
+        includedTypes:s.types, ...(s.exclude?{excludedPrimaryTypes:s.exclude}:{}), maxResultCount:20,
         rankPreference:SearchNearbyRankPreference[s.rank], language:'ja', region:'jp'})));
       const failed = results.filter(r=>r.status==='rejected');
       if(failed.length===results.length) throw failed[0].reason;
