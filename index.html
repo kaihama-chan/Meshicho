@@ -632,8 +632,7 @@ async function onAuth(u){
   }, err=>{
     console.error(err);
     if(err.code==='permission-denied'){
-      status(`<b>${esc(u.email)} ではこのめし帖の記録を見られません。</b> 登録済みの Google アカウントでログインし直してください。`);
-      firebase.auth().signOut();
+      status(`<b>${esc(u.email)} では記録を読み込めませんでした。</b> 登録済みのアカウントか確認してください。Firebase のアクセスルールがまだ公開されていない場合もこの表示になります。`);
     } else status('<b>記録を読み込めませんでした。</b> 通信状態を確認してください。');
   });
   shareMapsKey(); migrateLocal();
