@@ -93,6 +93,13 @@ button{cursor:pointer}
 .total span{font-size:12px;color:var(--muted)}
 .myScore{display:inline-flex;align-items:baseline;gap:4px;font-size:12px;font-weight:700;color:var(--good);background:color-mix(in srgb,var(--good) 14%,transparent);border-radius:99px;padding:1px 8px;margin-left:6px;vertical-align:middle;white-space:nowrap}
 .myScore .num{font-size:13px}
+.who{display:grid;gap:2px;padding:8px 0;border-bottom:1px solid var(--line)}
+.who:last-child{border-bottom:0}
+.whoHead{display:flex;justify-content:space-between;align-items:baseline;font-size:13px}
+.whoHead .num{font-size:16px;font-weight:700}
+.who .cats{display:flex;flex-wrap:wrap;gap:2px 10px;font-size:11px;color:var(--muted)}
+.memoView{margin:4px 0 0;font-size:13px;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--paper);border-radius:6px;padding:6px 8px}
+.photo .by{position:absolute;left:4px;bottom:4px;font-size:10px;color:#fff;background:rgb(0 0 0 / .55);border-radius:4px;padding:1px 5px}
 .rate{display:flex;gap:2px}
 .rate button{border:0;background:none;padding:2px;font-size:24px;line-height:1;color:var(--line)}
 .rate button.on{color:var(--karashi)}
@@ -146,6 +153,7 @@ a{color:var(--ai)}
 <header class="top" id="top">
   <div class="row">
     <div class="brand">めし帖<small>RADIUS 1KM</small></div>
+    <span id="authBox"></span>
     <button class="btn" id="mapToggle" type="button">地図</button>
     <button class="btn" id="keyBtn" type="button">APIキー</button>
   </div>
@@ -220,6 +228,10 @@ a{color:var(--ai)}
 </div>
 <div class="lightbox" id="lightbox" hidden><img id="lightImg" alt="記録した写真"></div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script>
 (() => {
 /* ---------- storage helpers ---------- */
@@ -240,40 +252,38 @@ const S = {
   selected: null, map: null, markers: new Map(), meMarker: null, gm: null
 };
 
-/* ---------- マイ記録（行った・評価・メモ）: このブラウザ内に保存 ---------- */
-const REC_KEY='meshi.records';
-let REC = (()=>{ try{ return JSON.parse(ls.get(REC_KEY))||{} }catch(e){ return {} } })();
-const rec = id => REC[id] || null;
-/* 4項目の評価。総合は付けた項目の平均（未評価の項目は数えない） */
-const CATS = [['food','料理'],['service','接客'],['mood','雰囲気'],['price','値段']];
-function total(r){
-  if(!r) return 0;
-  const v = CATS.map(([k])=>r.cats?.[k]||0).filter(Boolean);
-  if(v.length) return v.reduce((a,b)=>a+b,0)/v.length;
-  return r.stars || 0;   // 以前の1項目評価の名残
-}
-function saveRec(id, patch){
-  REC[id] = {...(REC[id]||{}), ...patch};
-  ls.set(REC_KEY, JSON.stringify(REC));
-}
+/* ---------- 2人の記録: Firebase で共有 ---------- */
+const FB_CONFIG = {
+  apiKey: "AIzaSyCuo-LzZaBfAPunkHlW_egNwmSBp1z8VVM",
+  authDomain: "project-5354013e-42b3-4dd8-a2c.firebaseapp.com",
+  projectId: "project-5354013e-42b3-4dd8-a2c",
+  storageBucket: "project-5354013e-42b3-4dd8-a2c.firebasestorage.app",
+  messagingSenderId: "941615251209",
+  appId: "1:941615251209:web:48deb7897a7df9af979dd8"
+};
+/* 読み書きできる人は Firebase のルール側で2人に限定する（メールアドレスはこの公開ページには書かない） */
+const FB = { ok:false, user:null, db:null, st:null, unsub:null };
+let RECS = {};                       // お店ID -> 共有の記録
+const rec = id => RECS[id] || null;
 
-/* 写真は容量が大きいので IndexedDB に保存 */
-const IDB = (()=>{
-  let dbp=null;
-  const open=()=> dbp ||= new Promise((res,rej)=>{
-    const r=indexedDB.open('meshicho',1);
-    r.onupgradeneeded=()=>{ const s=r.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true}); s.createIndex('place','place'); };
-    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
-  });
-  const tx=async(mode,fn)=>{ const db=await open(); return new Promise((res,rej)=>{
-    const t=db.transaction('photos',mode); const out=fn(t.objectStore('photos'));
-    t.oncomplete=()=>res(out.result ?? out); t.onerror=()=>rej(t.error); }); };
-  return {
-    add:(place,blob)=>tx('readwrite',s=>s.add({place,blob,at:Date.now()})),
-    list:(place)=>tx('readonly',s=>s.index('place').getAll(place)),
-    del:(id)=>tx('readwrite',s=>s.delete(id)),
-  };
-})();
+/* 4項目の評価。各自の点は付けた項目の平均、総合ポイントは評価した人の平均 */
+const CATS = [['food','料理'],['service','接客'],['mood','雰囲気'],['price','値段']];
+const avg = a => a.length ? a.reduce((x,y)=>x+y,0)/a.length : 0;
+const personAvg = v => avg(CATS.map(([k])=>v?.cats?.[k]||0).filter(Boolean));
+function people(r){
+  return Object.entries(r?.rv||{}).map(([uid,v])=>({uid, name:v.name||'?', avg:personAvg(v), v}))
+    .filter(x=>x.avg || x.v.memo);
+}
+const total = r => avg(people(r).map(x=>x.avg).filter(Boolean));
+
+function shortName(u){
+  const n=(u.displayName||u.email.split('@')[0]).trim(), parts=n.split(/\s+/);
+  if(parts.length<2) return n;
+  return /^[\x00-\x7F]+$/.test(n) ? parts[0] : parts[parts.length-1];   // "Kai Hamano"→Kai / "浜野 海"→海
+}
+const myName = () => FB.user ? shortName(FB.user) : '';
+const recRef = id => FB.db.collection('records').doc(id);
+const today = () => new Date().toLocaleDateString('ja-JP');
 /* 大きな写真は長辺1600pxのJPEGに縮めてから保存 */
 async function shrink(file){
   try{
@@ -390,7 +400,7 @@ function render(){
         <span class="rank">${i+1}</span>
         ${p.photo ? `<img class="thumb" loading="lazy" alt="" src="${esc(p.photo)}">` : `<span class="thumb">${esc((p.name.replace('【サンプル】','')||'?')[0])}</span>`}
         <span>
-          <p class="name">${esc(p.name)}${r.went&&total(r)?`<span class="myScore">マイ総合 <span class="num">${total(r).toFixed(1)}</span></span>`:''}</p>
+          <p class="name">${esc(p.name)}${r.went&&total(r)?`<span class="myScore">2人の総合 <span class="num">${total(r).toFixed(1)}</span></span>`:''}</p>
           <span class="score">
             <span class="r">${p.rating? p.rating.toFixed(1):'–'}</span>
             <span class="stars" style="--p:${(p.rating||0)/5*100}%"></span>
@@ -571,94 +581,208 @@ async function openDetail(id){
     $('#recSlot').replaceWith(keep);
   }catch(e){ console.error(e); const r=$('#revs'); if(r && tok===detailTok) r.textContent='口コミを取得できませんでした。'; }
 }
-function closeDetail(){ $('#sheet').hidden=true; $('#lightbox').hidden=true; }
+function closeDetail(){
+  $('#sheet').hidden=true; $('#lightbox').hidden=true;
+  if(photoUnsub){ photoUnsub(); photoUnsub=null; }
+}
 
-/* ---------- マイ記録の画面 ---------- */
-let detailTok = 0;
-const photoUrls = new Set();
+/* ---------- ログイン ---------- */
+function fbInit(){
+  if(!window.firebase){ renderAuth(); return; }
+  try{
+    firebase.initializeApp(FB_CONFIG);
+    FB.db=firebase.firestore(); FB.st=firebase.storage(); FB.ok=true;
+    firebase.auth().onAuthStateChanged(onAuth);
+    firebase.auth().getRedirectResult().catch(authError);
+  }catch(e){ console.error(e); }
+  renderAuth();
+}
+function authError(e){
+  if(!e || e.code==='auth/popup-closed-by-user' || e.code==='auth/cancelled-popup-request') return;
+  console.error(e);
+  const hint = e.code==='auth/unauthorized-domain'
+    ? 'Firebase の Authentication 設定で、承認済みドメインに kaihama-chan.github.io を追加してください。'
+    : (e.message||e.code||'');
+  status(`<b>ログインできませんでした。</b> ${esc(hint)}`);
+}
+async function login(){
+  const prov=new firebase.auth.GoogleAuthProvider();
+  prov.setCustomParameters({prompt:'select_account'});
+  try{ await firebase.auth().signInWithPopup(prov); }
+  catch(e){
+    if(e.code==='auth/popup-blocked' || e.code==='auth/operation-not-supported-in-this-environment')
+      return firebase.auth().signInWithRedirect(prov).catch(authError);
+    authError(e);
+  }
+}
+function renderAuth(){
+  const box=$('#authBox'); if(!box) return;
+  if(!FB.ok){ box.innerHTML=''; return; }
+  box.innerHTML = FB.user
+    ? `<button class="btn" type="button" data-act="logout" title="${esc(FB.user.email)}">${esc(myName())}・ログアウト</button>`
+    : `<button class="btn primary" type="button" data-act="login">Googleでログイン</button>`;
+}
+async function onAuth(u){
+  if(FB.unsub){ FB.unsub(); FB.unsub=null; }
+  RECS={};
+  FB.user=u||null; renderAuth(); render(); refreshOpenRecord();
+  if(!u) return;
+  FB.unsub = FB.db.collection('records').onSnapshot(snap=>{
+    RECS={}; snap.forEach(d=>{ RECS[d.id]=d.data(); });
+    render(); refreshOpenRecord(true);
+  }, err=>{
+    console.error(err);
+    if(err.code==='permission-denied'){
+      status(`<b>${esc(u.email)} ではこのめし帖の記録を見られません。</b> 登録済みの Google アカウントでログインし直してください。`);
+      firebase.auth().signOut();
+    } else status('<b>記録を読み込めませんでした。</b> 通信状態を確認してください。');
+  });
+  shareMapsKey(); migrateLocal();
+}
+/* Google マップのキーを2人で共有：登録済みならそれを使い、なければ自分のキーを登録する */
+async function shareMapsKey(){
+  try{
+    const ref=FB.db.collection('config').doc('app');
+    const snap=await ref.get(); const k=snap.exists ? (snap.data().mapsKey||'') : '';
+    if(k && !S.key){ S.key=k; ls.set('meshi.key',k); $('#keyBox').hidden=true; bootSearch(); }
+    else if(!k && S.key){ await ref.set({mapsKey:S.key},{merge:true}); }
+  }catch(e){ console.error(e); }
+}
+/* 共有前にこのブラウザだけに付けていた記録を、初回ログイン時に共有側へ移す */
+async function migrateLocal(){
+  if(ls.get('meshi.migrated')) return;
+  let old={}; try{ old=JSON.parse(ls.get('meshi.records'))||{}; }catch(e){}
+  const ids=Object.keys(old).filter(id=>!/^s\d+$/.test(id));
+  try{
+    if(ids.length){
+      const b=FB.db.batch(), uid=FB.user.uid;
+      ids.forEach(id=>{
+        const r=old[id], mine={name:myName()};
+        if(r.cats) mine.cats=r.cats; if(r.memo) mine.memo=r.memo;
+        b.set(recRef(id),{name:r.name||'', went:!!r.went, wentAt:r.wentAt||'', rv:{[uid]:mine}},{merge:true});
+      });
+      await b.commit();
+    }
+    ls.set('meshi.migrated','1');
+  }catch(e){ console.error(e); }
+}
+
+/* ---------- 2人の記録の画面 ---------- */
+let detailTok = 0, photoUnsub = null;
+const urlCache = new Map();
 function recordHtml(p){
-  const r = rec(p.id) || {};
-  if(!r.went) return `
-    <section class="record">
-      <h3>マイ記録</h3>
-      <p class="cnt" style="margin:0">行ったお店にチェックすると、自分の評価・メモ・写真を残せます。</p>
-      <button class="btn primary" type="button" id="recWent">行った！にする</button>
-    </section>`;
+  const box = inner => `<section class="record"><h3>2人の記録</h3>${inner}</section>`;
+  if(p.sample) return box('<p class="cnt" style="margin:0">サンプルのお店には記録できません。実際のお店を検索すると使えます。</p>');
+  if(!FB.ok) return box('<p class="cnt" style="margin:0">記録の共有機能を読み込めませんでした。広告ブロッカーなどの拡張機能を切って、再読み込みしてください。</p>');
+  if(!FB.user) return box(`<p class="cnt" style="margin:0">ログインすると、行ったお店の評価・メモ・写真を2人で共有できます。</p>
+      <button class="btn primary" type="button" data-act="login">Googleでログイン</button>`);
+  const r=rec(p.id)||{};
+  if(!r.went) return box(`<p class="cnt" style="margin:0">行ったお店にチェックすると、それぞれの評価・メモと写真を残せます。</p>
+      <button class="btn primary" type="button" id="recWent">行った！にする</button>`);
+  const mine=r.rv?.[FB.user.uid]||{}, me=esc(myName());
   return `
     <section class="record">
-      <h3>マイ記録 <span class="when">${r.wentAt?esc(r.wentAt)+' に行った':''}</span></h3>
-      <div><div class="lbl">自分の評価</div>
+      <h3>2人の記録 <span class="when">${r.wentAt?esc(r.wentAt)+' に行った':''}</span></h3>
+      <div id="pair">${pairHtml(r)}</div>
+      <div><div class="lbl">${me}の評価</div>
         <div class="rateGrid" id="rate">
           ${CATS.map(([k,label])=>`<span class="k">${label}</span>
-          <div class="rate" data-k="${k}">${[1,2,3,4,5].map(n=>`<button type="button" data-n="${n}" class="${(r.cats?.[k]||0)>=n?'on':''}" aria-label="${label} ${n}点">★</button>`).join('')}</div>`).join('')}
-        </div>
-        <div class="total" id="total">${totalHtml(r)}</div></div>
-      <div><div class="lbl">メモ</div>
-        <textarea id="memo" placeholder="頼んだもの、また行きたいか、誰と行ったか など">${esc(r.memo||'')}</textarea></div>
-      <div><div class="lbl">写真</div>
+          <div class="rate" data-k="${k}">${[1,2,3,4,5].map(n=>`<button type="button" data-n="${n}" class="${(mine.cats?.[k]||0)>=n?'on':''}" aria-label="${label} ${n}点">★</button>`).join('')}</div>`).join('')}
+        </div></div>
+      <div><div class="lbl">${me}のメモ</div>
+        <textarea id="memo" placeholder="頼んだもの、また行きたいか など">${esc(mine.memo||'')}</textarea></div>
+      <div><div class="lbl">写真（2人で共有）</div>
         <div class="photos" id="photos"><label class="addPhoto">＋ 写真を追加<input type="file" id="photoIn" accept="image/*" multiple></label></div></div>
       <div class="saved" id="saved" aria-live="polite"></div>
       <button class="btn" type="button" id="recUnwent">「行った」を外す（記録は残ります）</button>
     </section>`;
 }
-function totalHtml(r){
-  const t = total(r);
-  const n = CATS.filter(([k])=>r?.cats?.[k]).length;
-  return t ? `<span>総合ポイント</span><b>${t.toFixed(1)}</b><span>${n}項目の平均</span>`
-           : '<span>総合ポイント：星を付けると、付けた項目の平均が出ます</span>';
+function pairHtml(r){
+  const ps=people(r), t=total(r), n=ps.filter(x=>x.avg).length;
+  const head = t ? `<div class="total"><span>総合ポイント</span><b>${t.toFixed(1)}</b><span>${n===1?'1人の評価':n+'人の平均'}</span></div>`
+                 : '<div class="total"><span>総合ポイント：星を付けると、2人の平均が出ます</span></div>';
+  return head + ps.map(x=>`
+    <div class="who">
+      <div class="whoHead"><b>${esc(x.name)}${x.uid===FB.user?.uid?'（自分）':''}</b><span class="num">${x.avg?x.avg.toFixed(1):'–'}</span></div>
+      <div class="cats">${CATS.map(([k,l])=>x.v.cats?.[k]?`<span>${l} ${'★'.repeat(x.v.cats[k])}</span>`:'').join('')}</div>
+      ${x.uid!==FB.user?.uid && x.v.memo ? `<p class="memoView">${esc(x.v.memo)}</p>` : ''}
+    </div>`).join('');
 }
-function markWent(p, on){
-  const r = rec(p.id) || {};
-  saveRec(p.id, on ? {went:true, name:p.name, wentAt:r.wentAt || new Date().toLocaleDateString('ja-JP')} : {went:false});
+function write(p, data){
+  return recRef(p.id).set({name:p.name, updatedAt:firebase.firestore.FieldValue.serverTimestamp(), ...data},{merge:true})
+    .catch(e=>{ console.error(e); const sv=$('#saved'); if(sv) sv.textContent='保存できませんでした。通信状態とログインを確認してください。'; status('<b>記録を保存できませんでした。</b>'); });
 }
-function refreshRecord(p){
-  const box = $('#panel .record'); if(!box) return;
-  box.outerHTML = recordHtml(p); bindRecord(p);
+function setWent(p, on){
+  const r=rec(p.id)||{};
+  return write(p, on ? {went:true, wentAt:r.wentAt||today()} : {went:false});
+}
+/* 共有データが更新されたら、開いている記録欄を書き直す（入力中のメモは上書きしない） */
+function refreshOpenRecord(soft){
+  if($('#sheet').hidden || !S.selected) return;
+  const p=S.places.find(x=>x.id===S.selected); if(!p) return;
+  const box=$('#panel .record'); if(!box) return;
+  const r=rec(p.id)||{};
+  if(soft && $('#pair') && r.went && FB.user){
+    $('#pair').innerHTML=pairHtml(r);
+    const mine=r.rv?.[FB.user.uid]||{};
+    $('#rate')?.querySelectorAll('.rate').forEach(row=>{
+      const v=mine.cats?.[row.dataset.k]||0;
+      row.querySelectorAll('button').forEach(b=>b.classList.toggle('on', v>=+b.dataset.n));
+    });
+    const m=$('#memo'); if(m && document.activeElement!==m && m.value!==(mine.memo||'')) m.value=mine.memo||'';
+    return;
+  }
+  box.outerHTML=recordHtml(p); bindRecord(p);
 }
 function bindRecord(p){
-  $('#recWent')?.addEventListener('click',()=>{ markWent(p,true); refreshRecord(p); render(); });
-  $('#recUnwent')?.addEventListener('click',()=>{ markWent(p,false); refreshRecord(p); render(); });
+  if(photoUnsub){ photoUnsub(); photoUnsub=null; }
+  $('#recWent')?.addEventListener('click',()=>setWent(p,true));
+  $('#recUnwent')?.addEventListener('click',()=>setWent(p,false));
+  if(!FB.user || !rec(p.id)?.went) return;
+  const uid=FB.user.uid;
   $('#rate')?.addEventListener('click',e=>{
     const b=e.target.closest('button'); if(!b) return;
-    const row=b.closest('.rate'), k=row.dataset.k, n=+b.dataset.n;
-    const cats={...(rec(p.id)?.cats||{})};
-    cats[k] = cats[k]===n ? 0 : n;             // 同じ星をもう一度押すと取り消し
-    saveRec(p.id,{cats});
-    row.querySelectorAll('button').forEach(x=>x.classList.toggle('on', cats[k]>=+x.dataset.n));
-    $('#total').innerHTML = totalHtml(rec(p.id));
-    const label = CATS.find(c=>c[0]===k)[1];
-    $('#saved').textContent = cats[k] ? `${label}を${cats[k]}点にしました` : `${label}の評価を取り消しました`;
-    render();
+    const k=b.closest('.rate').dataset.k, n=+b.dataset.n, label=CATS.find(c=>c[0]===k)[1];
+    const cur=rec(p.id)?.rv?.[uid]?.cats?.[k]||0, v = cur===n ? 0 : n;   // 同じ星をもう一度押すと取り消し
+    write(p,{rv:{[uid]:{name:myName(), cats:{[k]:v}}}})
+      .then(()=>{ const sv=$('#saved'); if(sv) sv.textContent = v ? `${label}を${v}点にしました` : `${label}の評価を取り消しました`; });
   });
   const memo=$('#memo');
   if(memo){
-    let t; const save=()=>{ clearTimeout(t); saveRec(p.id,{memo:memo.value}); $('#saved').textContent='メモを保存しました'; };
-    memo.addEventListener('input',()=>{ clearTimeout(t); t=setTimeout(save,500); });
+    let t;
+    const save=()=>{ clearTimeout(t); write(p,{rv:{[uid]:{name:myName(), memo:memo.value}}}).then(()=>{ const sv=$('#saved'); if(sv) sv.textContent='メモを保存しました'; }); };
+    memo.addEventListener('input',()=>{ clearTimeout(t); t=setTimeout(save,800); });
     memo.addEventListener('change',save);
   }
   $('#photoIn')?.addEventListener('change',async e=>{
     const fs=[...e.target.files]; e.target.value=''; if(!fs.length) return;
-    $('#saved').textContent='写真を保存しています…';
+    const sv=$('#saved'); if(sv) sv.textContent='写真をアップロードしています…';
     try{
-      for(const f of fs) await IDB.add(p.id, await shrink(f));
-      $('#saved').textContent=`写真を${fs.length}枚保存しました`;
-    }catch(err){ console.error(err); $('#saved').textContent='写真を保存できませんでした。ブラウザの空き容量やプライベートモードを確認してください。'; }
-    loadPhotos(p.id);
+      for(const f of fs){
+        const blob=await shrink(f);
+        const path=`photos/${p.id}/${Date.now()}-${Math.random().toString(36).slice(2,8)}.jpg`;
+        await FB.st.ref(path).put(blob,{contentType:blob.type||'image/jpeg'});
+        await recRef(p.id).collection('photos').add({path, by:uid, byName:myName(), at:Date.now()});
+      }
+      if($('#saved')) $('#saved').textContent=`写真を${fs.length}枚アップロードしました`;
+    }catch(err){ console.error(err); if($('#saved')) $('#saved').textContent='写真をアップロードできませんでした。通信状態と Storage の設定を確認してください。'; }
   });
-  if($('#photos')) loadPhotos(p.id);
+  photoUnsub = recRef(p.id).collection('photos').orderBy('at').onSnapshot(renderPhotos, err=>console.error(err));
 }
-async function loadPhotos(id){
+async function renderPhotos(snap){
+  const items=[]; snap.forEach(d=>items.push({id:d.id, ...d.data()}));
+  const rows=await Promise.all(items.map(async it=>{
+    let u=urlCache.get(it.path);
+    if(!u){ try{ u=await FB.st.ref(it.path).getDownloadURL(); urlCache.set(it.path,u); }catch(e){ u=''; } }
+    return {it,u};
+  }));
   const wrap=$('#photos'); if(!wrap) return;
-  let items=[];
-  try{ items=await IDB.list(id); }catch(e){ $('#saved').textContent='このブラウザでは写真を読み込めませんでした。'; return; }
-  if(S.selected!==id || !$('#photos')) return;
   wrap.querySelectorAll('.photo').forEach(x=>x.remove());
-  photoUrls.forEach(u=>URL.revokeObjectURL(u)); photoUrls.clear();
   const add=wrap.querySelector('.addPhoto');
-  items.sort((a,b)=>a.at-b.at).forEach(it=>{
-    const u=URL.createObjectURL(it.blob); photoUrls.add(u);
+  rows.forEach(({it,u})=>{
     const d=document.createElement('div'); d.className='photo';
-    d.innerHTML=`<img alt="記録した写真" src="${u}"><button type="button" class="del" data-id="${it.id}">削除</button>`;
+    d.innerHTML=`${u?`<img alt="記録した写真" src="${esc(u)}">`:''}<span class="by">${esc(it.byName||'')}</span>
+      <button type="button" class="del" data-id="${esc(it.id)}" data-path="${esc(it.path)}">削除</button>`;
     wrap.insertBefore(d, add);
   });
 }
@@ -682,8 +806,9 @@ $('#list').addEventListener('click',e=>{
   const id=item.dataset.id;
   if(e.target.closest('.visit')){
     const p=S.places.find(x=>x.id===id); if(!p) return;
-    markWent(p, !rec(id)?.went); render();
-    if(S.selected===id && !$('#sheet').hidden) refreshRecord(p);
+    if(p.sample){ status('<b>サンプルのお店には記録できません。</b> 実際のお店を検索すると使えます。'); return; }
+    if(!FB.user){ status('<b>記録するにはログインしてください。</b> 右上の「Googleでログイン」から2人の記録を共有できます。'); return; }
+    setWent(p, !rec(id)?.went);
     return;
   }
   if(e.target.closest('.itemMain')) openDetail(id);
@@ -692,13 +817,23 @@ $('#panel').addEventListener('click',async e=>{
   const del=e.target.closest('.photo .del');
   if(del){
     if(!del.classList.contains('sure')){ del.classList.add('sure'); del.textContent='本当に削除'; return; }
-    try{ await IDB.del(+del.dataset.id); $('#saved').textContent='写真を削除しました'; }catch(err){ console.error(err); }
-    loadPhotos(S.selected); return;
+    try{
+      await FB.st.ref(del.dataset.path).delete().catch(()=>{});
+      await recRef(S.selected).collection('photos').doc(del.dataset.id).delete();
+      if($('#saved')) $('#saved').textContent='写真を削除しました';
+    }catch(err){ console.error(err); if($('#saved')) $('#saved').textContent='写真を削除できませんでした。'; }
+    return;
   }
+  if(e.target.closest('[data-act="login"]')){ login(); return; }
   const img=e.target.closest('.photo img');
   if(img){ $('#lightImg').src=img.src; $('#lightbox').hidden=false; }
 });
 $('#lightbox').addEventListener('click',()=>{ $('#lightbox').hidden=true; });
+$('#authBox').addEventListener('click',e=>{
+  const b=e.target.closest('[data-act]'); if(!b) return;
+  if(b.dataset.act==='login') login();
+  if(b.dataset.act==='logout') firebase.auth().signOut();
+});
 $('#sheet').addEventListener('click',e=>{ if(e.target.id==='sheet'||e.target.id==='closeSheet') closeDetail(); });
 document.addEventListener('keydown',e=>{
   if(e.key!=='Escape') return;
@@ -709,6 +844,7 @@ $('#keyBtn').addEventListener('click',()=>{ const k=$('#keyBox'); k.hidden=!k.hi
 $('#keySave').addEventListener('click',async()=>{
   const v=$('#keyInput').value.trim(); if(!v) return;
   S.key=v; ls.set('meshi.key',v); $('#keyBox').hidden=true;
+  if(FB.user) FB.db.collection('config').doc('app').set({mapsKey:v},{merge:true}).catch(e=>console.error(e));
   try{ await loadMaps(v); await ensureMap(); status('キーを読み込みました。「現在地で探す」か住所を入力してください。'); }
   catch(e){ status(`<b>${esc(e.message)}</b>`); }
 });
@@ -744,16 +880,19 @@ addEventListener('resize',setTopH);
 try{ new ResizeObserver(setTopH).observe($('#top')); }catch(e){}
 
 /* ---------- boot ---------- */
-$('#addr').value = ls.get('meshi.addr') || '';
-S.places = buildSample(); bayes(S.places); renderChips(); render(); setTopH();
-if(!S.key) $('#keyBox').hidden=false;
-else {
-  /* 前回検索した場所があれば、開いたときにその場所で自動検索する */
+/* 前回検索した場所があれば、開いたときにその場所で自動検索する */
+function bootSearch(){
   let last=null; try{ last=JSON.parse(ls.get('meshi.origin')); }catch(e){}
-  if(last?.origin) searchAround(last.origin, last.label);
-  else loadMaps(S.key).then(ensureMap).then(()=>{ render(); status('住所を入れて「この場所で探す」か、「現在地で探す」を押してください。'); })
+  if(last?.origin) return searchAround(last.origin, last.label);
+  loadMaps(S.key).then(ensureMap).then(()=>{ render(); status('住所を入れて「この場所で探す」か、「現在地で探す」を押してください。'); })
     .catch(e=>status(`<b>${esc(e.message)}</b>`));
 }
+$('#addr').value = ls.get('meshi.addr') || '';
+S.places = buildSample(); bayes(S.places); renderChips(); render(); setTopH();
+fbInit();
+if(S.key) bootSearch();
+else if(FB.ok) status('<b>右上の「Googleでログイン」を押してください。</b> 2人で共有しているAPIキーが自動で読み込まれます。');
+else $('#keyBox').hidden=false;
 })();
 </script>
 </body>
