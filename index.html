@@ -56,6 +56,7 @@ button{cursor:pointer}
 .loc{display:flex;gap:6px;flex:1 1 320px;min-width:0}
 .loc input{flex:1;min-width:0;border:0;background:var(--sunk);border-radius:99px;padding:8px 16px}
 .loc input::placeholder{color:var(--muted)}
+.nameBar input{background:var(--card);box-shadow:var(--shadow)}
 .where{font-size:12px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding-left:4px}
 
 /* 条件パネル（折りたたみ） */
@@ -218,6 +219,10 @@ a{color:var(--accent)}
       <button class="btn" type="submit">この場所で探す</button>
     </form>
   </div>
+  <form class="loc nameBar" id="nameForm" role="search">
+    <input id="nameQ" type="search" placeholder="店名で探す（例: タージマハール）" autocomplete="off" enterkeyhint="search">
+    <button class="btn" type="submit">Googleで探す</button>
+  </form>
   <div class="where" id="where">場所が未設定です</div>
   <button class="ftoggle" id="ftoggle" type="button" aria-expanded="true" aria-controls="filters">
     <span class="ttl">並び替え・絞り込み</span><span class="sum" id="fsum"></span><span class="chev" aria-hidden="true"></span>
@@ -417,6 +422,11 @@ function openAt(pp, off, now=new Date()){
 function visible(){
   const o = S.origin || SAMPLE_ORIGIN;
   let L = S.places.map(p=>({...p, dist:distM(o,p), openNow: p.pp ? openAt(p.pp, p.off ?? 540) : p.openNow}));
+  if(S.q){
+    const nq=norm(S.q);
+    L = L.filter(p=>S.hits?.has(p.id) || norm(p.name).includes(nq));
+    return L.sort((a,b)=>a.dist-b.dist);   // 店名で探しているときは距離などの条件を外して近い順
+  }
   L = L.filter(p=>p.dist<=S.radius);
   if(S.minRating) L = L.filter(p=>(p.rating||0)>=S.minRating);
   if(S.openOnly) L = L.filter(p=>p.openNow===true);
@@ -446,7 +456,9 @@ function render(){
   const L = visible();
   const list = $('#list');
   if(!L.length){
-    list.innerHTML = progressHtml() + `<div class="empty">条件に合うお店がありません。<br>距離や評価の条件をゆるめてみてください。</div>`;
+    list.innerHTML = progressHtml() + (S.q
+      ? `<div class="empty">一覧に「${esc(S.q)}」はありません。<br>「Googleで探す」を押すと、この周りから店名で探します。</div>`
+      : `<div class="empty">条件に合うお店がありません。<br>距離や評価の条件をゆるめてみてください。</div>`);
   } else {
     list.innerHTML = progressHtml() + L.map((p,i)=>{ const r=rec(p.id)||{}; return `
       <div class="item${S.selected===p.id?' on':''}${r.went?' went':''}" data-id="${esc(p.id)}">
@@ -484,7 +496,7 @@ function render(){
 
 /* いまの条件で表示しているお店のうち、行ったお店の割合 */
 function progressHtml(){
-  if(S.sample || !FB.user) return '';
+  if(S.sample || !FB.user || S.q) return '';
   const all=S.base||[], n=all.length; if(!n) return '';
   const went=all.filter(p=>rec(p.id)?.went).length, pct=Math.round(went/n*100);
   const scope=[S.radius>=1000?'1km以内':S.radius+'m以内', S.genre, S.minRating?`★${S.minRating}以上`:'', S.openOnly?'営業中':''].filter(Boolean).join('・');
@@ -530,6 +542,7 @@ function updateSummary(){
   if(S.openOnly) parts.push('営業中');
   if(S.went==='went') parts.push('行った店'); if(S.went==='not') parts.push('まだの店');
   if(S.genre) parts.push(S.genre);
+  if(S.q) parts.unshift(`店名「${S.q}」`);
   const el=$('#fsum'); if(el) el.textContent=parts.join('・');
 }
 
@@ -598,6 +611,50 @@ const FIELDS = ['id','displayName','location','rating','userRatingCount','priceL
   'formattedAddress','regularOpeningHours','utcOffsetMinutes','businessStatus','googleMapsURI','photos'];
 const objs = new Map(); // id -> google Place object (for reviews later)
 
+/* Google の Place をめし帖の一覧用データに変換（閉業店は除く） */
+function toItem(p){
+  if(p.businessStatus && p.businessStatus!=='OPERATIONAL') return null;
+  objs.set(p.id,p);
+  let pp=null; try{ pp = toPeriods(p.regularOpeningHours); }catch(e){}
+  const off = p.utcOffsetMinutes ?? 540;
+  let photo=null, credit='';
+  try{ if(p.photos?.length){ photo=p.photos[0].getURI({maxWidth:240,maxHeight:240});
+    credit=p.photos[0].authorAttributions?.[0]?.displayName||''; } }catch(e){}
+  return {id:p.id,name:p.displayName||'(名称不明)',genre:p.primaryTypeDisplayName||'',
+    rating:p.rating??null,count:p.userRatingCount??0,price:PRICE[p.priceLevel]??null,
+    lat:p.location.lat(),lng:p.location.lng(),openNow:openAt(pp, off),addr:p.formattedAddress||'',
+    url:p.googleMapsURI||'',photo,credit,pp,off,
+    hours:p.regularOpeningHours?.weekdayDescriptions||[]};
+}
+
+/* ---------- 店名で探す ---------- */
+const norm = t => String(t||'').normalize('NFKC').toLowerCase().replace(/[\s・･'’\-]/g,'');
+function setQuery(q){
+  S.q=q.trim(); S.hits=null; render();
+}
+async function searchByName(){
+  const q=$('#nameQ').value.trim(); if(!q) return;
+  if(!S.key){ $('#keyBox').hidden=false; status('<b>先にAPIキーを設定してください。</b>'); return; }
+  if(!S.origin){ status('<b>先に場所を指定してください。</b> 「現在地で探す」か住所の「この場所で探す」を押すと、その周りから店名で探せます。'); return; }
+  S.q=q;
+  try{
+    await loadMaps(S.key); await ensureMap();
+    status(`「${esc(q)}」を探しています…`);
+    const {Place}=await google.maps.importLibrary('places');
+    const {places}=await Place.searchByText({textQuery:q, fields:FIELDS,
+      locationBias:{center:S.origin, radius:1500}, maxResultCount:10, language:'ja', region:'jp'});
+    const items=places.map(toItem).filter(Boolean);
+    for(const it of items){
+      const i=S.places.findIndex(x=>x.id===it.id);
+      if(i>=0) S.places[i]={...S.places[i], ...it}; else S.places.push(it);
+    }
+    S.hits=new Set(items.map(x=>x.id));
+    bayes(S.places); renderChips(); render();
+    status(items.length ? `「${esc(q)}」で<b>${items.length}</b>件見つかりました（近い順）。　入力欄を空にすると一覧に戻ります。`
+                        : `<b>「${esc(q)}」は見つかりませんでした。</b> 別の書き方（カタカナ・英語など）でも試してみてください。`);
+  }catch(e){ console.error(e); status(`<b>店名で探せませんでした。</b> ${esc(e.message||'')}`); }
+}
+
 async function searchAround(origin,label){
   if(!S.key){ $('#keyBox').hidden=false; status('<b>先にAPIキーを設定してください。</b>'); return; }
   S.origin=origin; S.originLabel=label; $('#where').textContent='検索の中心：'+label;
@@ -621,22 +678,7 @@ async function searchAround(origin,label){
       const seen=new Map();
       for(const r of results){ if(r.status!=='fulfilled') continue;
         for(const p of r.value.places){ if(!seen.has(p.id)) seen.set(p.id,p); } }
-      list=[];
-      for(const p of seen.values()){
-        if(p.businessStatus && p.businessStatus!=='OPERATIONAL') continue;
-        objs.set(p.id,p);
-        let pp=null; try{ pp = toPeriods(p.regularOpeningHours); }catch(e){}
-        const off = p.utcOffsetMinutes ?? 540;
-        const open = openAt(pp, off);
-        let photo=null, credit='';
-        try{ if(p.photos?.length){ photo=p.photos[0].getURI({maxWidth:240,maxHeight:240});
-          credit=p.photos[0].authorAttributions?.[0]?.displayName||''; } }catch(e){}
-        list.push({id:p.id,name:p.displayName||'(名称不明)',genre:p.primaryTypeDisplayName||'',
-          rating:p.rating??null,count:p.userRatingCount??0,price:PRICE[p.priceLevel]??null,
-          lat:p.location.lat(),lng:p.location.lng(),openNow:open,addr:p.formattedAddress||'',
-          url:p.googleMapsURI||'',photo,credit,pp,off,
-          hours:p.regularOpeningHours?.weekdayDescriptions||[]});
-      }
+      list=[...seen.values()].map(toItem).filter(Boolean);
       try{ sessionStorage.setItem(ck,JSON.stringify({t:Date.now(),list})) }catch(e){}
     }
     S.places=list; S.sample=false; S.selected=null; bayes(S.places); renderChips(); render();
@@ -934,6 +976,8 @@ function segment(id,key,cast){
 segment('#sortSeg','sort',String);
 segment('#radSeg','radius',Number);
 segment('#minSeg','minRating',Number);
+$('#nameQ').addEventListener('input',e=>setQuery(e.target.value));
+$('#nameForm').addEventListener('submit',e=>{ e.preventDefault(); searchByName(); });
 $('#openOnly').addEventListener('change',e=>{S.openOnly=e.target.checked;render();});
 $('#chips').addEventListener('click',e=>{const b=e.target.closest('.chip'); if(!b) return; S.genre=b.dataset.v; renderChips(); render();});
 segment('#wentSeg','went',String);
