@@ -658,11 +658,34 @@ async function searchByName(){
   }catch(e){ console.error(e); status(`<b>店名で探せませんでした。</b> ${esc(e.message||'')}`); }
 }
 
+/* 300m以内は全店を取りこぼさないよう、近い順で問い合わせて上限(20件)に達したら円を7つに分けて取り直す */
+const NEAR_R = 300, NEAR_TYPES = ['restaurant','cafe','coffee_shop','bakery','bar','pub','meal_takeaway'];
+function hexRing(c, r){
+  const out=[c], d=Math.sqrt(3)*r, k=111320, kl=k*Math.cos(c.lat*Math.PI/180);
+  for(let i=0;i<6;i++){ const a=i*Math.PI/3; out.push({lat:c.lat+d*Math.cos(a)/k, lng:c.lng+d*Math.sin(a)/kl}); }
+  return out;
+}
+async function coverNear(Place, Rank, origin){
+  const seen=new Map(); let calls=0, capped=false;
+  async function go(c, r, depth){
+    calls++;
+    const {places}=await Place.searchNearby({fields:FIELDS, locationRestriction:{center:c, radius:r},
+      includedTypes:NEAR_TYPES, maxResultCount:20, rankPreference:Rank.DISTANCE, language:'ja', region:'jp'});
+    places.forEach(p=>seen.set(p.id,p));
+    if(places.length>=20){
+      if(depth<2) await Promise.all(hexRing(c, r/2).map(c2=>go(c2, r/2, depth+1)));
+      else capped=true;
+    }
+  }
+  try{ await go(origin, NEAR_R, 0); }catch(e){ console.error(e); capped=true; }
+  return {places:[...seen.values()], calls, capped};
+}
+
 async function searchAround(origin,label){
   if(!S.key){ $('#keyBox').hidden=false; status('<b>先にAPIキーを設定してください。</b>'); return; }
   S.origin=origin; S.originLabel=label; $('#where').textContent='検索の中心：'+label;
   ls.set('meshi.origin', JSON.stringify({origin,label}));
-  const ck='meshi.cache3.'+origin.lat.toFixed(3)+','+origin.lng.toFixed(3);
+  const ck='meshi.cache4.'+origin.lat.toFixed(3)+','+origin.lng.toFixed(3);
   try{
     await loadMaps(S.key); await ensureMap();
     S.map.setCenter(origin); S.map.setZoom(15);
@@ -681,11 +704,16 @@ async function searchAround(origin,label){
       const seen=new Map();
       for(const r of results){ if(r.status!=='fulfilled') continue;
         for(const p of r.value.places){ if(!seen.has(p.id)) seen.set(p.id,p); } }
+      status('近くのお店を取りこぼしなく集めています…');
+      const near=await coverNear(Place, SearchNearbyRankPreference, origin);
+      near.places.forEach(p=>{ if(!seen.has(p.id)) seen.set(p.id,p); });
+      S.nearCapped=near.capped;
       list=[...seen.values()].map(toItem).filter(Boolean);
       try{ sessionStorage.setItem(ck,JSON.stringify({t:Date.now(),list})) }catch(e){}
     }
     S.places=list; S.sample=false; S.selected=null; bayes(S.places); renderChips(); render();
     if(cached) status($('#status').innerHTML+'　（30分以内の結果を再利用）');
+    else if(S.nearCapped) status($('#status').innerHTML+'　300m以内のお店がとても多いため、一部が漏れている可能性があります。');
   }catch(e){
     console.error(e);
     status(`<b>取得できませんでした。</b> ${esc(e.message||e)}　Places API (New) が有効か、キーの制限を確認してください。`);
