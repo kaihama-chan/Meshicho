@@ -120,6 +120,16 @@ button{cursor:pointer}
 .empty{padding:32px;text-align:center;color:var(--muted);background:var(--card);border-radius:var(--r);box-shadow:var(--shadow)}
 .myScore{display:inline-flex;align-items:baseline;gap:4px;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:99px;padding:1px 9px;margin-left:6px;vertical-align:2px;white-space:nowrap}
 .myScore .num{font-size:13px;font-weight:800}
+.progress{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:12px 16px 14px;display:grid;gap:4px}
+.pTop{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:var(--muted)}
+.pLbl{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pCnt{font-weight:600;white-space:nowrap}
+.pMain{display:flex;align-items:baseline;gap:8px;font-size:13px}
+.pMain b{font-size:34px;font-weight:800;line-height:1.05;color:var(--accent)}
+.pMain b small{font-size:16px;margin-left:1px}
+.pBar{height:8px;border-radius:99px;background:var(--sunk);overflow:hidden;margin-top:4px}
+.pBar i{display:block;height:100%;border-radius:99px;background:var(--accent);min-width:0}
+@media (prefers-reduced-motion:no-preference){.pBar i{transition:width .4s ease}}
 .pay{display:inline-flex;flex-wrap:wrap;gap:4px}
 .pay span{display:inline-flex;align-items:center;gap:3px;font-size:11px;line-height:1.6;color:var(--fg);background:var(--sunk);border-radius:99px;padding:0 8px 0 6px}
 .pay svg{width:13px;height:13px;flex:none}
@@ -411,6 +421,7 @@ function visible(){
   if(S.minRating) L = L.filter(p=>(p.rating||0)>=S.minRating);
   if(S.openOnly) L = L.filter(p=>p.openNow===true);
   if(S.genre) L = L.filter(p=>p.genre===S.genre);
+  S.base = L;   // 「行った割合」はこの段階（記録の絞り込み前）のお店で数える
   if(S.went==='went') L = L.filter(p=>rec(p.id)?.went);
   if(S.went==='not') L = L.filter(p=>!rec(p.id)?.went);
   const by = {
@@ -435,9 +446,9 @@ function render(){
   const L = visible();
   const list = $('#list');
   if(!L.length){
-    list.innerHTML = `<div class="empty">条件に合うお店がありません。<br>距離や評価の条件をゆるめてみてください。</div>`;
+    list.innerHTML = progressHtml() + `<div class="empty">条件に合うお店がありません。<br>距離や評価の条件をゆるめてみてください。</div>`;
   } else {
-    list.innerHTML = L.map((p,i)=>{ const r=rec(p.id)||{}; return `
+    list.innerHTML = progressHtml() + L.map((p,i)=>{ const r=rec(p.id)||{}; return `
       <div class="item${S.selected===p.id?' on':''}${r.went?' went':''}" data-id="${esc(p.id)}">
       <button class="itemMain" type="button">
         <span class="rank">${i+1}</span>
@@ -469,6 +480,19 @@ function render(){
   status(`${base}<b>${L.length}</b>件 / 取得${S.places.length}件`);
   updateSummary();
   renderMarkers(L);
+}
+
+/* いまの条件で表示しているお店のうち、行ったお店の割合 */
+function progressHtml(){
+  if(S.sample || !FB.user) return '';
+  const all=S.base||[], n=all.length; if(!n) return '';
+  const went=all.filter(p=>rec(p.id)?.went).length, pct=Math.round(went/n*100);
+  const scope=[S.radius>=1000?'1km以内':S.radius+'m以内', S.genre, S.minRating?`★${S.minRating}以上`:'', S.openOnly?'営業中':''].filter(Boolean).join('・');
+  return `<section class="progress" aria-label="行ったお店の割合">
+    <div class="pTop"><span class="pLbl">${esc(scope)}のお店</span><span class="pCnt num">${went} / ${n}軒</span></div>
+    <div class="pMain"><b class="num">${pct}<small>%</small></b><span>${went ? 'に行きました' : 'まだ行ったお店はありません'}</span></div>
+    <div class="pBar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></div>
+  </section>`;
 }
 
 /* ---------- 支払い方法（お店を開いたときに取得し、2人の共有データにも保存） ---------- */
