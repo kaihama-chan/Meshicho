@@ -314,7 +314,9 @@ function render(){
         </span>
       </button>`).join('');
   }
-  const base = S.sample ? '<b>サンプル表示中</b>：架空のお店です。APIキーを設定して「現在地で探す」を押すと実データに切り替わります。　' : '';
+  const base = !S.sample ? '' : S.key
+    ? '<b>サンプル表示中</b>：架空のお店です。住所の「この場所で探す」か「現在地で探す」を押すと実データに切り替わります。　'
+    : '<b>サンプル表示中</b>：架空のお店です。APIキーを設定して「現在地で探す」を押すと実データに切り替わります。　';
   status(`${base}<b>${L.length}</b>件 / 取得${S.places.length}件`);
   renderMarkers(L);
 }
@@ -372,6 +374,7 @@ const objs = new Map(); // id -> google Place object (for reviews later)
 async function searchAround(origin,label){
   if(!S.key){ $('#keyBox').hidden=false; status('<b>先にAPIキーを設定してください。</b>'); return; }
   S.origin=origin; S.originLabel=label; $('#where').textContent='検索の中心：'+label;
+  ls.set('meshi.origin', JSON.stringify({origin,label}));
   const ck='meshi.cache2.'+origin.lat.toFixed(3)+','+origin.lng.toFixed(3);
   try{
     await loadMaps(S.key); await ensureMap();
@@ -528,7 +531,13 @@ addEventListener('resize',setTopH);
 $('#addr').value = ls.get('meshi.addr') || '';
 S.places = buildSample(); bayes(S.places); renderChips(); render(); setTopH();
 if(!S.key) $('#keyBox').hidden=false;
-else loadMaps(S.key).then(ensureMap).then(()=>render()).catch(e=>status(`<b>${esc(e.message)}</b>`));
+else {
+  /* 前回検索した場所があれば、開いたときにその場所で自動検索する */
+  let last=null; try{ last=JSON.parse(ls.get('meshi.origin')); }catch(e){}
+  if(last?.origin) searchAround(last.origin, last.label);
+  else loadMaps(S.key).then(ensureMap).then(()=>{ render(); status('住所を入れて「この場所で探す」か、「現在地で探す」を押してください。'); })
+    .catch(e=>status(`<b>${esc(e.message)}</b>`));
+}
 })();
 </script>
 </body>
