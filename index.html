@@ -88,8 +88,14 @@ button{cursor:pointer}
 
 /* ---- 一覧と地図 ---- */
 .layout{display:grid;grid-template-columns:minmax(0,1fr);gap:16px;padding-block:10px 40px;padding-left:max(16px,env(safe-area-inset-left));padding-right:max(16px,env(safe-area-inset-right))}
-@media (min-width:900px){.layout{grid-template-columns:minmax(0,460px) minmax(0,1fr)}
-  #map{position:sticky;top:var(--topH,150px);height:calc(100vh - var(--topH,150px) - 24px)}
+/* PC：画面全体を固定して、地図は動かさず一覧だけをスクロールする */
+@media (min-width:900px){
+  html,body{height:100%;overflow:hidden}
+  body{display:flex;flex-direction:column}
+  .top{position:relative}
+  .layout{flex:1;min-height:0;grid-template-columns:minmax(0,460px) minmax(0,1fr);grid-template-rows:minmax(0,1fr);padding-block:12px 16px}
+  .list{overflow-y:auto;min-height:0;padding:2px 8px 16px 2px;margin:-2px 0 0 -2px;scrollbar-width:thin}
+  #map{height:100%;min-height:0}
   #mapToggle{display:none}}
 @media (max-width:899px){#map{height:240px;order:-1}#map.hide{display:none}}
 #map{border-radius:20px;box-shadow:var(--shadow);background:var(--sunk);min-height:220px;display:grid;place-items:center;color:var(--muted);font-size:13px;overflow:hidden}
@@ -114,6 +120,10 @@ button{cursor:pointer}
 .empty{padding:32px;text-align:center;color:var(--muted);background:var(--card);border-radius:var(--r);box-shadow:var(--shadow)}
 .myScore{display:inline-flex;align-items:baseline;gap:4px;font-size:11px;font-weight:700;color:var(--accent);background:var(--accent-soft);border-radius:99px;padding:1px 9px;margin-left:6px;vertical-align:2px;white-space:nowrap}
 .myScore .num{font-size:13px;font-weight:800}
+.pay{display:inline-flex;flex-wrap:wrap;gap:4px}
+.pay span{display:inline-flex;align-items:center;gap:3px;font-size:11px;line-height:1.6;color:var(--fg);background:var(--sunk);border-radius:99px;padding:0 8px 0 6px}
+.pay svg{width:13px;height:13px;flex:none}
+.pay .cashonly{color:var(--off);background:color-mix(in srgb,var(--off) 12%,transparent)}
 
 .visit{margin:12px 12px 0 4px;display:grid;justify-items:center;gap:3px;border:0;background:none;padding:2px 4px;font-size:11px;font-weight:700;color:var(--muted);min-width:48px}
 .visit .box{width:28px;height:28px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font-size:14px;line-height:1;background:var(--card)}
@@ -437,6 +447,7 @@ function render(){
             <span>${esc(p.genre||'飲食店')}</span>
             <span class="num">${fmtDist(p.dist)}・${walk(p.dist)}</span>
             ${p.price!=null?`<span class="num">${yen(p.price)}</span>`:''}
+            ${payHtml(getPay(p.id))}
             ${p.openNow===true?'<span class="open">営業中</span>':p.openNow===false?'<span class="closed">営業時間外</span>':''}
           </span>
         </span>
@@ -452,6 +463,32 @@ function render(){
   status(`${base}<b>${L.length}</b>件 / 取得${S.places.length}件`);
   updateSummary();
   renderMarkers(L);
+}
+
+/* ---------- 支払い方法（お店を開いたときに取得し、2人の共有データにも保存） ---------- */
+let PAY = (()=>{ try{ return JSON.parse(ls.get('meshi.pay'))||{} }catch(e){ return {} } })();
+const getPay = id => rec(id)?.pay || PAY[id] || null;
+function savePay(p, po){
+  const pay = po ? {cc:!!po.acceptsCreditCards, dc:!!po.acceptsDebitCards, cash:!!po.acceptsCashOnly, nfc:!!po.acceptsNFC} : {none:true};
+  const old = getPay(p.id);
+  if(old && JSON.stringify(old)===JSON.stringify(pay)) return;
+  PAY[p.id]=pay; ls.set('meshi.pay', JSON.stringify(PAY));
+  if(FB.user) recRef(p.id).set({name:p.name, pay},{merge:true}).catch(e=>console.error(e));
+  render();
+}
+const ICON = {
+  card:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="1.5" y="3.5" width="13" height="9" rx="1.6"/><path d="M1.5 6.6h13" stroke-width="1.8"/></svg>',
+  nfc:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true"><path d="M4 5.5a3.5 3.5 0 0 1 0 5"/><path d="M7 3.5a6.5 6.5 0 0 1 0 9"/><path d="M10 1.8a9 9 0 0 1 0 12.4"/></svg>',
+  cash:'<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.2"/><path d="M5.6 4.8 8 8l2.4-3.2M8 8v3.6M6 8.7h4M6 10.3h4"/></svg>'
+};
+function payHtml(py){
+  if(!py || py.none) return '';
+  const t=[];
+  if(py.cash) t.push(`<span class="cashonly">${ICON.cash}現金のみ</span>`);
+  if(py.cc) t.push(`<span>${ICON.card}クレカ</span>`);
+  if(py.dc && !py.cc) t.push(`<span>${ICON.card}デビット</span>`);
+  if(py.nfc) t.push(`<span>${ICON.nfc}タッチ決済</span>`);
+  return t.length ? `<span class="pay" title="Googleマップの支払い情報">${t.join('')}</span>` : '';
 }
 
 /* 条件パネルを閉じているときに見せる、いまの条件の要約 */
@@ -569,6 +606,7 @@ async function openDetail(id){
   const p = S.places.find(x=>x.id===id); if(!p) return;
   if(p.pp) p.openNow = openAt(p.pp, p.off ?? 540);
   S.selected=id; render();
+  try{ document.querySelector(`.item[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({block:'nearest',behavior:'smooth'}); }catch(e){}
   const d = distM(S.origin||SAMPLE_ORIGIN,p);
   const panel=$('#panel');
   const head = `
@@ -582,6 +620,7 @@ async function openDetail(id){
       <dt>ジャンル</dt><dd>${esc(p.genre||'飲食店')}</dd>
       <dt>距離</dt><dd class="num">${fmtDist(d)}（${walk(d)}）</dd>
       ${p.price!=null?`<dt>価格帯</dt><dd class="num">${yen(p.price)}</dd>`:''}
+      <dt>支払い</dt><dd>${(()=>{ const py=getPay(p.id); return py ? (payHtml(py)||'Googleに登録なし') : '開いたときに読み込みます'; })()}</dd>
       <dt>営業</dt><dd>${p.openNow===true?'<span class="open">営業中</span>':p.openNow===false?'<span class="closed">営業時間外</span>':'不明'}</dd>
       <dt>住所</dt><dd>${esc(p.addr)}</dd>
       ${extra.phone?`<dt>電話</dt><dd class="num">${esc(extra.phone)}</dd>`:''}
@@ -603,7 +642,8 @@ async function openDetail(id){
   try{
     let obj = objs.get(id);
     if(!obj){ const {Place}=await google.maps.importLibrary('places'); obj=new Place({id,requestedLanguage:'ja'}); }
-    await obj.fetchFields({fields:['reviews','photos','websiteURI','nationalPhoneNumber']});
+    await obj.fetchFields({fields:['reviews','photos','websiteURI','nationalPhoneNumber','paymentOptions']});
+    savePay(p, obj.paymentOptions);
     let hero='';
     if(obj.photos?.length){
       const ph=obj.photos[0]; const who=ph.authorAttributions?.[0];
