@@ -48,8 +48,8 @@ button{cursor:pointer}
 .loc input{flex:1;min-width:0;border:1px solid var(--line);background:var(--card);border-radius:8px;padding:6px 10px}
 .where{font-size:12px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--card)}
-.seg button{border:0;background:none;padding:5px 11px;font-size:13px;border-right:1px solid var(--line)}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow-x:auto;max-width:100%;scrollbar-width:none;background:var(--card)}
+.seg button{border:0;background:none;padding:5px 11px;font-size:13px;border-right:1px solid var(--line);white-space:nowrap;flex:none}
 .seg button:last-child{border-right:0}
 .seg button[aria-pressed="true"]{background:var(--ai);color:var(--paper);font-weight:700}
 .lbl{font-size:11px;letter-spacing:.1em;color:var(--muted);font-weight:700}
@@ -69,12 +69,37 @@ button{cursor:pointer}
 @media (min-width:900px){.layout{grid-template-columns:minmax(0,440px) minmax(0,1fr)}
   #map{position:sticky;top:var(--topH,150px);height:calc(100vh - var(--topH,150px) - 24px)}
   #mapToggle{display:none}}
-@media (max-width:899px){#map{height:320px}#map.hide{display:none}}
+@media (max-width:899px){#map{height:260px;order:-1}#map.hide{display:none}}
 #map{border-radius:12px;border:1px solid var(--line);background:var(--chip);min-height:240px;display:grid;place-items:center;color:var(--muted);font-size:13px;overflow:hidden}
 
 .list{display:grid;gap:10px;align-content:start;min-width:0}
-.item{display:grid;grid-template-columns:28px 76px minmax(0,1fr);gap:12px;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px;text-align:left;width:100%}
+.item{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:start;background:var(--card);border:1px solid var(--line);border-radius:12px}
+.itemMain{display:grid;grid-template-columns:28px 76px minmax(0,1fr);gap:12px;align-items:start;padding:10px 0 10px 10px;text-align:left;border:0;background:none;width:100%;border-radius:12px 0 0 12px}
 .item:hover{border-color:var(--ai)}
+.item.went{background:color-mix(in srgb,var(--card) 88%,var(--good))}
+.visit{margin:10px 10px 0 4px;display:grid;justify-items:center;gap:2px;border:1px solid var(--line);background:var(--paper);border-radius:10px;padding:6px 8px;font-size:11px;font-weight:700;color:var(--muted);min-width:52px}
+.visit .box{width:22px;height:22px;border-radius:6px;border:2px solid var(--line);display:grid;place-items:center;font-size:14px;line-height:1}
+.visit[aria-pressed="true"]{border-color:var(--good);color:var(--good)}
+.visit[aria-pressed="true"] .box{background:var(--good);border-color:var(--good);color:var(--card)}
+.mine{font-size:12px;font-weight:700;color:var(--good)}
+
+.record{display:grid;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px 14px}
+.record h3{margin:0;font-size:14px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.record .when{font-size:12px;color:var(--muted);font-weight:400}
+.rate{display:flex;gap:4px}
+.rate button{border:0;background:none;padding:2px;font-size:28px;line-height:1;color:var(--line)}
+.rate button.on{color:var(--karashi)}
+.record textarea{width:100%;min-height:96px;resize:vertical;border:1px solid var(--line);background:var(--paper);border-radius:8px;padding:8px 10px;font:inherit;font-size:14px;color:var(--fg)}
+.photos{display:grid;grid-template-columns:repeat(auto-fill,minmax(88px,1fr));gap:8px}
+.photo{position:relative;aspect-ratio:1;max-width:100%;border-radius:8px;overflow:hidden;background:var(--chip)}
+.photo img{width:100%;height:100%;object-fit:cover;display:block;cursor:zoom-in}
+.photo .del{position:absolute;top:4px;right:4px;border:0;border-radius:6px;background:rgb(0 0 0 / .6);color:#fff;font-size:11px;padding:2px 6px}
+.photo .del.sure{background:var(--off)}
+.addPhoto{aspect-ratio:1;border:1px dashed var(--line);border-radius:8px;display:grid;place-items:center;font-size:12px;color:var(--muted);cursor:pointer;text-align:center;padding:4px}
+.addPhoto input{display:none}
+.saved{font-size:12px;color:var(--good);min-height:1.2em}
+.lightbox{position:fixed;inset:0;z-index:60;background:rgb(0 0 0 / .85);display:grid;place-items:center;padding:16px}
+.lightbox img{max-width:100%;max-height:100%;border-radius:8px}
 .item.on{border-color:var(--karashi);box-shadow:0 0 0 1px var(--karashi)}
 .rank{font-family:var(--f-num);font-size:13px;color:var(--muted);padding-top:2px;text-align:right}
 .thumb{width:76px;height:76px;border-radius:8px;background:var(--chip);object-fit:cover;display:grid;place-items:center;font-family:var(--f-display);color:var(--muted);font-size:20px}
@@ -133,6 +158,7 @@ a{color:var(--ai)}
       <button type="button" data-v="count" aria-pressed="false">口コミ数</button>
       <button type="button" data-v="dist" aria-pressed="false">近い順</button>
       <button type="button" data-v="price" aria-pressed="false">安い順</button>
+      <button type="button" data-v="mine" aria-pressed="false">マイ評価</button>
     </div>
   </div>
   <div class="row">
@@ -149,6 +175,14 @@ a{color:var(--ai)}
       <button type="button" data-v="4" aria-pressed="false">4.0+</button>
     </div>
     <label class="toggle"><input type="checkbox" id="openOnly">営業中のみ</label>
+  </div>
+  <div class="row">
+    <span class="lbl">記録</span>
+    <div class="seg" id="wentSeg">
+      <button type="button" data-v="all" aria-pressed="true">全部</button>
+      <button type="button" data-v="went" aria-pressed="false">行った</button>
+      <button type="button" data-v="not" aria-pressed="false">まだ</button>
+    </div>
   </div>
   <div class="chips" id="chips"></div>
 </header>
@@ -177,6 +211,7 @@ a{color:var(--ai)}
 <div class="sheet" id="sheet" hidden>
   <div class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="dTitle"></div>
 </div>
+<div class="lightbox" id="lightbox" hidden><img id="lightImg" alt="記録した写真"></div>
 
 <script>
 (() => {
@@ -194,9 +229,46 @@ const S = {
   key: ls.get('meshi.key') || '',
   origin: null, originLabel: '',
   places: [], sample: true,
-  sort: 'score', radius: 1000, minRating: 0, openOnly: false, genre: '',
+  sort: 'score', radius: 1000, minRating: 0, openOnly: false, genre: '', went: 'all',
   selected: null, map: null, markers: new Map(), meMarker: null, gm: null
 };
+
+/* ---------- マイ記録（行った・評価・メモ）: このブラウザ内に保存 ---------- */
+const REC_KEY='meshi.records';
+let REC = (()=>{ try{ return JSON.parse(ls.get(REC_KEY))||{} }catch(e){ return {} } })();
+const rec = id => REC[id] || null;
+function saveRec(id, patch){
+  REC[id] = {...(REC[id]||{}), ...patch};
+  ls.set(REC_KEY, JSON.stringify(REC));
+}
+
+/* 写真は容量が大きいので IndexedDB に保存 */
+const IDB = (()=>{
+  let dbp=null;
+  const open=()=> dbp ||= new Promise((res,rej)=>{
+    const r=indexedDB.open('meshicho',1);
+    r.onupgradeneeded=()=>{ const s=r.result.createObjectStore('photos',{keyPath:'id',autoIncrement:true}); s.createIndex('place','place'); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+  });
+  const tx=async(mode,fn)=>{ const db=await open(); return new Promise((res,rej)=>{
+    const t=db.transaction('photos',mode); const out=fn(t.objectStore('photos'));
+    t.oncomplete=()=>res(out.result ?? out); t.onerror=()=>rej(t.error); }); };
+  return {
+    add:(place,blob)=>tx('readwrite',s=>s.add({place,blob,at:Date.now()})),
+    list:(place)=>tx('readonly',s=>s.index('place').getAll(place)),
+    del:(id)=>tx('readwrite',s=>s.delete(id)),
+  };
+})();
+/* 大きな写真は長辺1600pxのJPEGに縮めてから保存 */
+async function shrink(file){
+  try{
+    const bmp=await createImageBitmap(file);
+    const k=Math.min(1,1600/Math.max(bmp.width,bmp.height));
+    const c=document.createElement('canvas'); c.width=Math.round(bmp.width*k); c.height=Math.round(bmp.height*k);
+    c.getContext('2d').drawImage(bmp,0,0,c.width,c.height);
+    return await new Promise(r=>c.toBlob(b=>r(b||file),'image/jpeg',0.85));
+  }catch(e){ return file; }
+}
 
 /* ---------- sample data (shown before a key is set) ---------- */
 const SAMPLE_ORIGIN = {lat:35.6595, lng:139.7005};
@@ -271,7 +343,10 @@ function visible(){
   if(S.minRating) L = L.filter(p=>(p.rating||0)>=S.minRating);
   if(S.openOnly) L = L.filter(p=>p.openNow===true);
   if(S.genre) L = L.filter(p=>p.genre===S.genre);
+  if(S.went==='went') L = L.filter(p=>rec(p.id)?.went);
+  if(S.went==='not') L = L.filter(p=>!rec(p.id)?.went);
   const by = {
+    mine:(a,b)=>(rec(b.id)?.stars||0)-(rec(a.id)?.stars||0)||b.score-a.score,
     score:(a,b)=>b.score-a.score,
     rating:(a,b)=>(b.rating||0)-(a.rating||0)||(b.count||0)-(a.count||0),
     count:(a,b)=>(b.count||0)-(a.count||0),
@@ -294,8 +369,9 @@ function render(){
   if(!L.length){
     list.innerHTML = `<div class="empty">条件に合うお店がありません。<br>距離や評価の条件をゆるめてみてください。</div>`;
   } else {
-    list.innerHTML = L.map((p,i)=>`
-      <button class="item${S.selected===p.id?' on':''}" type="button" data-id="${esc(p.id)}">
+    list.innerHTML = L.map((p,i)=>{ const r=rec(p.id)||{}; return `
+      <div class="item${S.selected===p.id?' on':''}${r.went?' went':''}" data-id="${esc(p.id)}">
+      <button class="itemMain" type="button">
         <span class="rank">${i+1}</span>
         ${p.photo ? `<img class="thumb" loading="lazy" alt="" src="${esc(p.photo)}">` : `<span class="thumb">${esc((p.name.replace('【サンプル】','')||'?')[0])}</span>`}
         <span>
@@ -310,9 +386,14 @@ function render(){
             <span class="num">${fmtDist(p.dist)}・${walk(p.dist)}</span>
             ${p.price!=null?`<span class="num">${yen(p.price)}</span>`:''}
             ${p.openNow===true?'<span class="open">営業中</span>':p.openNow===false?'<span class="closed">営業時間外</span>':''}
+            ${r.went&&r.stars?`<span class="mine">マイ評価 ${'★'.repeat(r.stars)}</span>`:''}
           </span>
         </span>
-      </button>`).join('');
+      </button>
+      <button class="visit" type="button" aria-pressed="${!!r.went}" aria-label="${esc(p.name)}に行った">
+        <span class="box">${r.went?'✓':''}</span>${r.went?'行った':'行った?'}
+      </button>
+      </div>`; }).join('');
   }
   const base = !S.sample ? '' : S.key
     ? '<b>サンプル表示中</b>：架空のお店です。住所の「この場所で探す」か「現在地で探す」を押すと実データに切り替わります。　'
@@ -450,7 +531,9 @@ async function openDetail(id){
       <b>${esc(r.author)}</b><span>${esc(r.when)}</span></header><p>${esc(r.text)}</p></article>`).join('')
     : '<p class="cnt">口コミ本文はありません。</p>';
 
-  panel.innerHTML = head + facts() + '<h3 class="lbl">口コミ</h3><div id="revs" class="cnt">読み込み中…</div>';
+  const tok = ++detailTok;
+  panel.innerHTML = head + facts() + recordHtml(p) + '<h3 class="lbl">口コミ</h3><div id="revs" class="cnt">読み込み中…</div>';
+  bindRecord(p);
   $('#sheet').hidden=false; $('#closeSheet').focus();
 
   if(p.sample){ $('#revs').outerHTML = `<div style="display:grid;gap:8px">${revHtml(p.reviews)}</div>`; return; }
@@ -466,12 +549,92 @@ async function openDetail(id){
     }
     const rs=(obj.reviews||[]).map(r=>({rating:r.rating,author:r.authorAttribution?.displayName||'匿名',
       when:r.relativePublishTimeDescription||'',text:r.text||''}));
+    if(tok!==detailTok) return;               // 別のお店を開いた後に届いた結果は捨てる
+    const keep = panel.querySelector('.record'); // 入力中のメモを消さないよう、記録欄はそのまま差し戻す
     panel.innerHTML = head + hero + facts({phone:obj.nationalPhoneNumber,web:obj.websiteURI})
+      + '<div id="recSlot"></div>'
       + `<h3 class="lbl">口コミ（Googleマップより・最大5件）</h3><div style="display:grid;gap:8px">${revHtml(rs)}</div>`;
-    $('#closeSheet').focus();
-  }catch(e){ console.error(e); const r=$('#revs'); if(r) r.textContent='口コミを取得できませんでした。'; }
+    $('#recSlot').replaceWith(keep);
+  }catch(e){ console.error(e); const r=$('#revs'); if(r && tok===detailTok) r.textContent='口コミを取得できませんでした。'; }
 }
-function closeDetail(){ $('#sheet').hidden=true; }
+function closeDetail(){ $('#sheet').hidden=true; $('#lightbox').hidden=true; }
+
+/* ---------- マイ記録の画面 ---------- */
+let detailTok = 0;
+const photoUrls = new Set();
+function recordHtml(p){
+  const r = rec(p.id) || {};
+  if(!r.went) return `
+    <section class="record">
+      <h3>マイ記録</h3>
+      <p class="cnt" style="margin:0">行ったお店にチェックすると、自分の評価・メモ・写真を残せます。</p>
+      <button class="btn primary" type="button" id="recWent">行った！にする</button>
+    </section>`;
+  return `
+    <section class="record">
+      <h3>マイ記録 <span class="when">${r.wentAt?esc(r.wentAt)+' に行った':''}</span></h3>
+      <div><div class="lbl">自分の評価</div>
+        <div class="rate" id="rate">${[1,2,3,4,5].map(n=>`<button type="button" data-n="${n}" class="${(r.stars||0)>=n?'on':''}" aria-label="${n}点">★</button>`).join('')}</div></div>
+      <div><div class="lbl">メモ</div>
+        <textarea id="memo" placeholder="頼んだもの、また行きたいか、誰と行ったか など">${esc(r.memo||'')}</textarea></div>
+      <div><div class="lbl">写真</div>
+        <div class="photos" id="photos"><label class="addPhoto">＋ 写真を追加<input type="file" id="photoIn" accept="image/*" multiple></label></div></div>
+      <div class="saved" id="saved" aria-live="polite"></div>
+      <button class="btn" type="button" id="recUnwent">「行った」を外す（記録は残ります）</button>
+    </section>`;
+}
+function markWent(p, on){
+  const r = rec(p.id) || {};
+  saveRec(p.id, on ? {went:true, name:p.name, wentAt:r.wentAt || new Date().toLocaleDateString('ja-JP')} : {went:false});
+}
+function refreshRecord(p){
+  const box = $('#panel .record'); if(!box) return;
+  box.outerHTML = recordHtml(p); bindRecord(p);
+}
+function bindRecord(p){
+  $('#recWent')?.addEventListener('click',()=>{ markWent(p,true); refreshRecord(p); render(); });
+  $('#recUnwent')?.addEventListener('click',()=>{ markWent(p,false); refreshRecord(p); render(); });
+  $('#rate')?.addEventListener('click',e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    const n=+b.dataset.n, cur=rec(p.id)?.stars||0;
+    saveRec(p.id,{stars: cur===n ? 0 : n});   // 同じ星をもう一度押すと取り消し
+    const now=rec(p.id).stars||0;
+    $('#rate').querySelectorAll('button').forEach(x=>x.classList.toggle('on', now>=+x.dataset.n));
+    $('#saved').textContent = now ? `自分の評価を${now}点にしました` : '自分の評価を取り消しました';
+    render();
+  });
+  const memo=$('#memo');
+  if(memo){
+    let t; const save=()=>{ clearTimeout(t); saveRec(p.id,{memo:memo.value}); $('#saved').textContent='メモを保存しました'; };
+    memo.addEventListener('input',()=>{ clearTimeout(t); t=setTimeout(save,500); });
+    memo.addEventListener('change',save);
+  }
+  $('#photoIn')?.addEventListener('change',async e=>{
+    const fs=[...e.target.files]; e.target.value=''; if(!fs.length) return;
+    $('#saved').textContent='写真を保存しています…';
+    try{
+      for(const f of fs) await IDB.add(p.id, await shrink(f));
+      $('#saved').textContent=`写真を${fs.length}枚保存しました`;
+    }catch(err){ console.error(err); $('#saved').textContent='写真を保存できませんでした。ブラウザの空き容量やプライベートモードを確認してください。'; }
+    loadPhotos(p.id);
+  });
+  if($('#photos')) loadPhotos(p.id);
+}
+async function loadPhotos(id){
+  const wrap=$('#photos'); if(!wrap) return;
+  let items=[];
+  try{ items=await IDB.list(id); }catch(e){ $('#saved').textContent='このブラウザでは写真を読み込めませんでした。'; return; }
+  if(S.selected!==id || !$('#photos')) return;
+  wrap.querySelectorAll('.photo').forEach(x=>x.remove());
+  photoUrls.forEach(u=>URL.revokeObjectURL(u)); photoUrls.clear();
+  const add=wrap.querySelector('.addPhoto');
+  items.sort((a,b)=>a.at-b.at).forEach(it=>{
+    const u=URL.createObjectURL(it.blob); photoUrls.add(u);
+    const d=document.createElement('div'); d.className='photo';
+    d.innerHTML=`<img alt="記録した写真" src="${u}"><button type="button" class="del" data-id="${it.id}">削除</button>`;
+    wrap.insertBefore(d, add);
+  });
+}
 
 /* ---------- events ---------- */
 function segment(id,key,cast){
@@ -486,9 +649,34 @@ segment('#radSeg','radius',Number);
 segment('#minSeg','minRating',Number);
 $('#openOnly').addEventListener('change',e=>{S.openOnly=e.target.checked;render();});
 $('#chips').addEventListener('click',e=>{const b=e.target.closest('.chip'); if(!b) return; S.genre=b.dataset.v; renderChips(); render();});
-$('#list').addEventListener('click',e=>{const b=e.target.closest('.item'); if(b) openDetail(b.dataset.id);});
+segment('#wentSeg','went',String);
+$('#list').addEventListener('click',e=>{
+  const item=e.target.closest('.item'); if(!item) return;
+  const id=item.dataset.id;
+  if(e.target.closest('.visit')){
+    const p=S.places.find(x=>x.id===id); if(!p) return;
+    markWent(p, !rec(id)?.went); render();
+    if(S.selected===id && !$('#sheet').hidden) refreshRecord(p);
+    return;
+  }
+  if(e.target.closest('.itemMain')) openDetail(id);
+});
+$('#panel').addEventListener('click',async e=>{
+  const del=e.target.closest('.photo .del');
+  if(del){
+    if(!del.classList.contains('sure')){ del.classList.add('sure'); del.textContent='本当に削除'; return; }
+    try{ await IDB.del(+del.dataset.id); $('#saved').textContent='写真を削除しました'; }catch(err){ console.error(err); }
+    loadPhotos(S.selected); return;
+  }
+  const img=e.target.closest('.photo img');
+  if(img){ $('#lightImg').src=img.src; $('#lightbox').hidden=false; }
+});
+$('#lightbox').addEventListener('click',()=>{ $('#lightbox').hidden=true; });
 $('#sheet').addEventListener('click',e=>{ if(e.target.id==='sheet'||e.target.id==='closeSheet') closeDetail(); });
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeDetail(); });
+document.addEventListener('keydown',e=>{
+  if(e.key!=='Escape') return;
+  if(!$('#lightbox').hidden) $('#lightbox').hidden=true; else closeDetail();
+});
 $('#mapToggle').addEventListener('click',()=>$('#map').classList.toggle('hide'));
 $('#keyBtn').addEventListener('click',()=>{ const k=$('#keyBox'); k.hidden=!k.hidden; if(!k.hidden) $('#keyInput').focus(); });
 $('#keySave').addEventListener('click',async()=>{
@@ -526,6 +714,7 @@ $('#addrForm').addEventListener('submit',async e=>{
 /* keep sticky map below header */
 const setTopH=()=>document.documentElement.style.setProperty('--topH',($('#top').offsetHeight+12)+'px');
 addEventListener('resize',setTopH);
+try{ new ResizeObserver(setTopH).observe($('#top')); }catch(e){}
 
 /* ---------- boot ---------- */
 $('#addr').value = ls.get('meshi.addr') || '';
