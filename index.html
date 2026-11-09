@@ -4,6 +4,15 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>めし帖 半径1km</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="めし帖">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#f6f3ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1b1d1a" media="(prefers-color-scheme: dark)">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Yusei+Magic&family=Zen+Maru+Gothic:wght@400;500;700&family=Nunito:wght@600;800&display=swap">
@@ -157,6 +166,13 @@ button{cursor:pointer}
 .rev header{display:flex;gap:8px;align-items:center;font-size:12px;color:var(--muted);margin-bottom:4px;flex-wrap:wrap}
 .rev p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .closeX{justify-self:end}
+.sheet.center{justify-content:center;align-items:center;padding:16px}
+.howto{background:var(--paper);border-radius:24px;padding:22px 22px 18px;max-width:380px;width:100%;display:grid;gap:12px;box-shadow:0 10px 40px rgb(0 0 0 / .2)}
+.howto h2{margin:0;font-family:var(--f-display);font-weight:400;font-size:22px}
+.howto ol{margin:0;padding-left:1.3em;display:grid;gap:6px;font-size:14px}
+.howto b{color:var(--accent)}
+/* ホーム画面から開いたとき：上部をステータスバーの下から始める */
+@media (display-mode: standalone){ .top{padding-top:max(12px, env(safe-area-inset-top))} }
 .hideBtn{justify-self:start;font-size:12px;text-decoration:underline;text-underline-offset:3px}
 .nav{display:flex;align-items:center;justify-content:center;gap:8px;text-decoration:none;padding:11px 16px;font-size:15px}
 .nav svg{width:16px;height:16px}
@@ -211,6 +227,7 @@ a{color:var(--accent)}
     <div class="brand">めし帖<small>ふたりのごはん記録</small></div>
     <span id="authBox"></span>
     <button class="btn" id="mapToggle" type="button">地図</button>
+    <button class="btn ghost" id="installBtn" type="button" hidden>ホームに追加</button>
     <button class="btn ghost" id="keyBtn" type="button">APIキー</button>
   </div>
   <div class="row">
@@ -285,6 +302,13 @@ a{color:var(--accent)}
 
 <div class="sheet" id="sheet" hidden>
   <div class="panel" id="panel" role="dialog" aria-modal="true" aria-labelledby="dTitle"></div>
+</div>
+<div class="sheet center" id="installSheet" hidden>
+  <div class="howto" role="dialog" aria-modal="true" aria-labelledby="howtoT">
+    <h2 id="howtoT">ホーム画面に追加</h2>
+    <ol id="howtoSteps"></ol>
+    <button class="btn primary" type="button" id="howtoClose">わかった</button>
+  </div>
 </div>
 <div class="lightbox" id="lightbox" hidden><img id="lightImg" alt="記録した写真"></div>
 
@@ -843,6 +867,10 @@ function authError(e){
   status(`<b>ログインできませんでした。</b> ${esc(hint)}`);
 }
 async function login(){
+  if(/Line\/|FBAN|FBAV|Instagram/i.test(navigator.userAgent)){
+    status('<b>LINE などのアプリの中ではログインできません。</b> 右下（または右上）のメニューから「ブラウザで開く」を選び、Safari や Chrome で開き直してください。');
+    return;
+  }
   const prov=new firebase.auth.GoogleAuthProvider();
   prov.setCustomParameters({prompt:'select_account'});
   /* ページ移動型のログインは GitHub Pages では戻ってこられないことがあるので、ポップアップだけを使う */
@@ -1115,6 +1143,27 @@ $('#addrForm').addEventListener('submit',async e=>{
     searchAround({lat:loc.lat(),lng:loc.lng()}, results[0].formatted_address);
   }catch(err){ status(`<b>住所を特定できませんでした。</b> ${esc(err.message||'')}　Geocoding API が有効か確認してください。`); }
 });
+
+/* ---------- ホーム画面に追加 ---------- */
+const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform==='MacIntel' && navigator.maxTouchPoints>1);
+const inApp = /Line\/|FBAN|FBAV|Instagram/i.test(navigator.userAgent);
+let installEvt = null;
+addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); installEvt=e; if(!standalone) $('#installBtn').hidden=false; });
+addEventListener('appinstalled', ()=>{ $('#installBtn').hidden=true; status('ホーム画面に追加しました。次からはホーム画面のアイコンから開けます。'); });
+if(!standalone && (isIOS || inApp)) $('#installBtn').hidden=false;
+$('#installBtn').addEventListener('click', async ()=>{
+  if(installEvt){ installEvt.prompt(); const r=await installEvt.userChoice; if(r.outcome==='accepted') $('#installBtn').hidden=true; installEvt=null; return; }
+  const steps = inApp
+    ? ['この画面は LINE などのアプリの中で開いています。','右下（または右上）のメニューから<b>「ブラウザで開く」</b>を選び、Safari や Chrome で開き直してください。','開き直したら、もう一度「ホームに追加」を押してください。']
+    : isIOS
+    ? ['画面下（iPad は上）の<b>共有ボタン</b>（四角から矢印が出たアイコン）を押す','一覧を少し下にずらして<b>「ホーム画面に追加」</b>を押す','右上の<b>「追加」</b>を押す']
+    : ['ブラウザのメニュー（<b>︙</b>）を開く','<b>「ホーム画面に追加」</b>または<b>「アプリをインストール」</b>を押す'];
+  $('#howtoSteps').innerHTML = steps.map(t=>`<li>${t}</li>`).join('');
+  $('#installSheet').hidden=false;
+});
+$('#howtoClose').addEventListener('click', ()=>{ $('#installSheet').hidden=true; });
+$('#installSheet').addEventListener('click', e=>{ if(e.target.id==='installSheet') $('#installSheet').hidden=true; });
 
 /* keep sticky map below header */
 const setTopH=()=>document.documentElement.style.setProperty('--topH',($('#top').offsetHeight+12)+'px');
